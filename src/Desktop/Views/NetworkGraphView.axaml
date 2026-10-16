@@ -1,0 +1,93 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="700" d:DesignHeight="560"
+             x:Class="OmniConnect.Desktop.Views.NetworkGraphView"
+             x:CompileBindings="False"
+             IsVisible="{Binding IsPanelOpen}"
+             Background="#80000000">
+    <Grid VerticalAlignment="Center" HorizontalAlignment="Center" Width="680" MaxHeight="560">
+        <Border CornerRadius="12" Background="#13161d" Padding="24"
+                BorderBrush="#2a2f3a" BorderThickness="1">
+            <Grid RowDefinitions="Auto,*,Auto" RowSpacing="0">
+                <!-- ═══ Header ═══ -->
+                <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Border Width="32" Height="32" CornerRadius="6"
+                                Background="{StaticResource PrimaryBrush}">
+                            <TextBlock Text="NET" Foreground="White" FontSize="10" FontWeight="Bold"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="Network Graph" FontSize="18" FontWeight="SemiBold"
+                                       Foreground="#e4e6eb"/>
+                            <TextBlock Foreground="#5a5f6f" FontSize="11">
+                                <Run Text="{Binding DeviceCount}"/>
+                                <Run Text="devices discovered"/>
+                            </TextBlock>
+                        </StackPanel>
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="X" Width="32" Height="32" Padding="0"
+                            Classes="ghost" FontSize="14"
+                            VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Margin="0,0,4,0"
+                            Command="{Binding TogglePanelCommand}"/>
+                </Grid>
+
+                <!-- ═══ Graph Canvas (code-behind renders here) ═══ -->
+                <Border Grid.Row="1" CornerRadius="6" Background="#0a0d14"
+                        BorderBrush="#2a2f3a" BorderThickness="1"
+                        Padding="0" ClipToBounds="True">
+                    <Grid>
+                        <!-- Empty State -->
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                                    Spacing="8" IsVisible="{Binding IsEmpty}">
+                            <TextBlock Text="No devices discovered" Foreground="#5a5f6f" FontSize="14"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="Devices on your network will appear here"
+                                       Foreground="#5a5f6f" FontSize="11"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
+
+                        <!-- Canvas for drawing the graph -->
+                        <Canvas Name="GraphCanvas" Width="640" Height="380" Background="Transparent"
+                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                IsVisible="{Binding IsNotEmpty}"/>
+                    </Grid>
+                </Border>
+
+                <!-- ═══ Footer ═══ -->
+                <Border Grid.Row="2" Margin="0,12,0,0">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <!-- Legend -->
+                        <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <Ellipse Width="8" Height="8" Fill="#10b981" VerticalAlignment="Center"/>
+                                <TextBlock Text="LAN" Foreground="#8b92a5" FontSize="10" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <Ellipse Width="8" Height="8" Fill="#3b82f6" VerticalAlignment="Center"/>
+                                <TextBlock Text="Bluetooth" Foreground="#8b92a5" FontSize="10" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <Ellipse Width="8" Height="8" Fill="#f59e0b" VerticalAlignment="Center"/>
+                                <TextBlock Text="Internet" Foreground="#8b92a5" FontSize="10" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <Ellipse Width="8" Height="8" Fill="#10b981" VerticalAlignment="Center"/>
+                                <TextBlock Text="Wi-Fi" Foreground="#8b92a5" FontSize="10" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <!-- Auto-refresh indicator -->
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4"
+                                    VerticalAlignment="Center">
+                            <Ellipse Width="6" Height="6" Fill="#10b981" VerticalAlignment="Center"/>
+                            <TextBlock Text="Auto-refresh every 10s" Foreground="#5a5f6f" FontSize="10" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

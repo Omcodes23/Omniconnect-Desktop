@@ -1,0 +1,100 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="600"
+             x:Class="OmniConnect.Desktop.Views.LoginView"
+             x:CompileBindings="False">
+    <Grid Background="#0a0d14">
+
+        <!-- Center Content -->
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="0" Width="356">
+            <!-- Logo / Branding -->
+            <TextBlock Text="OmniConnect" FontSize="34" FontWeight="Bold"
+                       HorizontalAlignment="Center" Margin="0,0,0,2"
+                       Foreground="#3b82f6"
+                       LetterSpacing="1"/>
+            <TextBlock Text="Unified Communication Platform"
+                       Foreground="#5a5f6f" FontSize="12"
+                       HorizontalAlignment="Center" Margin="0,0,0,40"/>
+
+            <!-- Login Card -->
+            <Border Background="#13161d" CornerRadius="12" Padding="32"
+                    BorderBrush="#2a2f3a" BorderThickness="1">
+                <StackPanel Spacing="16">
+                    <!-- Card Header -->
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Welcome Back" FontSize="22" FontWeight="SemiBold"
+                                   Foreground="#e4e6eb" HorizontalAlignment="Center"/>
+                        <TextBlock Text="Sign in to continue to OmniConnect"
+                                   Foreground="#5a5f6f" FontSize="12"
+                                   HorizontalAlignment="Center"/>
+                    </StackPanel>
+
+                    <!-- Error Message Display -->
+                    <TextBlock Text="{Binding ErrorMessage}" Foreground="#ef4444" FontSize="12"
+                               HorizontalAlignment="Center" TextWrapping="Wrap"/>
+
+                    <!-- Email Field -->
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Email" Foreground="#8b92a5" FontSize="12" FontWeight="Medium"/>
+                        <TextBox Text="{Binding Email}" PlaceholderText="name@example.com"
+                                 Classes="modern"/>
+                    </StackPanel>
+
+                    <!-- Username (Register only) -->
+                    <StackPanel Spacing="8" IsVisible="{Binding IsRegisterMode}">
+                        <TextBlock Text="Username" Foreground="#8b92a5" FontSize="12" FontWeight="Medium"/>
+                        <TextBox Text="{Binding Username}" PlaceholderText="Choose a username"
+                                 Classes="modern"/>
+                    </StackPanel>
+
+                    <!-- Display Name (Register only) -->
+                    <StackPanel Spacing="8" IsVisible="{Binding IsRegisterMode}">
+                        <TextBlock Text="Display Name" Foreground="#8b92a5" FontSize="12" FontWeight="Medium"/>
+                        <TextBox Text="{Binding DisplayName}" PlaceholderText="How others see you"
+                                 Classes="modern"/>
+                    </StackPanel>
+
+                    <!-- Password Field -->
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Password" Foreground="#8b92a5" FontSize="12" FontWeight="Medium"/>
+                        <TextBox Text="{Binding Password}" PasswordChar="*" PlaceholderText="Enter your password"
+                                 Classes="modern"/>
+                    </StackPanel>
+
+                    <!-- Login / Register Button -->
+                    <Button Command="{Binding LoginCommand}"
+                            Height="42" CornerRadius="6"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Center"
+                            Classes="primary"
+                            Margin="0,8,0,0"
+                            FontSize="14"
+                            FontWeight="SemiBold">
+                        <TextBlock Text="Continue" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+
+                    <!-- Toggle Authentication Mode -->
+                    <TextBlock HorizontalAlignment="Center" Foreground="#5a5f6f" FontSize="12">
+                        <HyperlinkButton Command="{Binding ToggleModeCommand}"
+                                         Foreground="#3b82f6"
+                                         Cursor="Hand"
+                                         Background="Transparent"
+                                         BorderThickness="0"
+                                         FontSize="12"
+                                         Padding="0">
+                            <TextBlock x:Name="toggleText" Text="Don't have an account? Register"/>
+                        </HyperlinkButton>
+                    </TextBlock>
+                </StackPanel>
+            </Border>
+
+            <!-- Company Tagline -->
+            <TextBlock Text="Connect. Communicate. Collaborate."
+                       Foreground="#8b92a5" FontSize="11"
+                       HorizontalAlignment="Center" Margin="0,28,0,0"
+                       Opacity="0.7"/>
+        </StackPanel>
+    </Grid>
+</UserControl>

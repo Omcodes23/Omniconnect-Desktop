@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/Backend/">
+    <Project Path="src/Backend/OmniConnect.Backend.csproj" />
+  </Folder>
+  <Folder Name="/src/Desktop/">
+    <Project Path="src/Desktop/OmniConnect.Desktop.csproj" />
+  </Folder>
+  <Folder Name="/src/Shared/">
+    <Project Path="src/Shared/OmniConnect.Shared.csproj" />
+  </Folder>
+</Solution>

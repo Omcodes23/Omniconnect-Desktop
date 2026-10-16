@@ -1,0 +1,201 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="760" d:DesignHeight="580"
+             x:Class="OmniConnect.Desktop.Views.AdminView"
+             x:CompileBindings="False"
+             IsVisible="{Binding IsPanelOpen}"
+             Background="#80000000">
+    <Grid VerticalAlignment="Center" HorizontalAlignment="Center" Width="740" MaxHeight="560">
+        <Border CornerRadius="12" Background="#13161d" Padding="24"
+                BorderBrush="#2a2f3a" BorderThickness="1">
+            <Grid RowDefinitions="Auto,*,Auto" RowSpacing="0">
+                <!-- ═══ Header ═══ -->
+                <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,16">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Border Width="32" Height="32" CornerRadius="6"
+                                Background="{StaticResource PrimaryBrush}">
+                            <TextBlock Text="ADM" Foreground="White" FontSize="10" FontWeight="Bold"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="Admin Panel" FontSize="18" FontWeight="SemiBold"
+                                       Foreground="#e4e6eb"/>
+                            <TextBlock Text="System management &amp; monitoring"
+                                       Foreground="#5a5f6f" FontSize="11"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="X" Width="32" Height="32" Padding="0"
+                            Classes="ghost" FontSize="14"
+                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                            Command="{Binding TogglePanelCommand}"/>
+                </Grid>
+
+                <!-- ═══ Content ═══ -->
+                <TabControl Grid.Row="1" Background="Transparent">
+                    <!-- System Health Tab -->
+                    <TabItem Header="System Health">
+                        <Grid RowDefinitions="Auto,Auto" RowSpacing="16" Margin="0,16,0,0">
+                            <!-- Metrics Grid (2x3) -->
+                            <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto"
+                                  ColumnSpacing="12" RowSpacing="12">
+                                <!-- Status -->
+                                <Border Background="#1a1e27" CornerRadius="6" Padding="16"
+                                        BorderBrush="#2a2f3a" BorderThickness="1">
+                                    <StackPanel Spacing="8">
+                                        <Ellipse Width="8" Height="8" Fill="#10b981"
+                                                 HorizontalAlignment="Left"/>
+                                        <TextBlock Text="{Binding SystemStatus}" Foreground="#10b981"
+                                                   FontSize="22" FontWeight="Bold"/>
+                                        <TextBlock Text="System Status" Foreground="#5a5f6f" FontSize="11"/>
+                                    </StackPanel>
+                                </Border>
+                                <!-- Uptime -->
+                                <Border Grid.Column="1" Background="#1a1e27" CornerRadius="6" Padding="16"
+                                        BorderBrush="#2a2f3a" BorderThickness="1">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="UP" Foreground="#3b82f6" FontSize="12" FontWeight="Bold"/>
+                                        <TextBlock Text="{Binding UptimeHours, StringFormat='{}{0:F1}h'}"
+                                                   Foreground="#e4e6eb" FontSize="22" FontWeight="Bold"/>
+                                        <TextBlock Text="Uptime" Foreground="#5a5f6f" FontSize="11"/>
+                                    </StackPanel>
+                                </Border>
+                                <!-- Memory -->
+                                <Border Grid.Column="2" Background="#1a1e27" CornerRadius="6" Padding="16"
+                                        BorderBrush="#2a2f3a" BorderThickness="1">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="MEM" Foreground="#3b82f6" FontSize="12" FontWeight="Bold"/>
+                                        <TextBlock Text="{Binding MemoryUsageMb, StringFormat='{}{0} MB'}"
+                                                   Foreground="#e4e6eb" FontSize="22" FontWeight="Bold"/>
+                                        <TextBlock Text="Memory Usage" Foreground="#5a5f6f" FontSize="11"/>
+                                    </StackPanel>
+                                </Border>
+                                <!-- Active Connections -->
+                                <Border Grid.Row="1" Background="#1a1e27" CornerRadius="6" Padding="16"
+                                        BorderBrush="#2a2f3a" BorderThickness="1">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="CONN" Foreground="#10b981" FontSize="12" FontWeight="Bold"/>
+                                        <TextBlock Text="{Binding ActiveConnections}"
+                                                   Foreground="#e4e6eb" FontSize="22" FontWeight="Bold"/>
+                                        <TextBlock Text="Active Connections" Foreground="#5a5f6f" FontSize="11"/>
+                                    </StackPanel>
+                                </Border>
+                                <!-- Active Users -->
+                                <Border Grid.Row="1" Grid.Column="1" Background="#1a1e27" CornerRadius="6" Padding="16"
+                                        BorderBrush="#2a2f3a" BorderThickness="1">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="USERS" Foreground="#3b82f6" FontSize="12" FontWeight="Bold"/>
+                                        <TextBlock Text="{Binding ActiveUsers5Min}"
+                                                   Foreground="#e4e6eb" FontSize="22" FontWeight="Bold"/>
+                                        <TextBlock Text="Active Users (5m)" Foreground="#5a5f6f" FontSize="11"/>
+                                    </StackPanel>
+                                </Border>
+                                <!-- CPU Usage -->
+                                <Border Grid.Row="1" Grid.Column="2" Background="#1a1e27" CornerRadius="6" Padding="16"
+                                        BorderBrush="#2a2f3a" BorderThickness="1">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="CPU" Foreground="#f59e0b" FontSize="12" FontWeight="Bold"/>
+                                        <TextBlock Text="{Binding CpuUsagePercent, StringFormat='{}{0:F1}%'}"
+                                                   Foreground="#e4e6eb" FontSize="22" FontWeight="Bold"/>
+                                        <TextBlock Text="CPU Usage" Foreground="#5a5f6f" FontSize="11"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+
+                            <!-- Refresh Button -->
+                            <Button Content="Refresh Metrics"
+                                    Classes="primary"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center"
+                                    Height="34" FontSize="12"
+                                    Command="{Binding RefreshSystemHealthCommand}"/>
+                        </Grid>
+                    </TabItem>
+
+                    <!-- User Management Tab -->
+                    <TabItem Header="User Management">
+                        <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12" Margin="0,16,0,0">
+                            <!-- Search Bar -->
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <TextBox Text="{Binding UserSearchQuery}"
+                                         PlaceholderText="Search users..."
+                                         Classes="modern"
+                                         FontSize="12" Padding="12,8"
+                                         VerticalAlignment="Center"/>
+                                <Button Grid.Column="1" Content="Search"
+                                        Classes="primary" Width="90" Height="34" FontSize="12"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                                        Command="{Binding SearchUsersCommand}"/>
+                            </Grid>
+
+                            <!-- Database Stats -->
+                            <Border Background="#1a1e27" CornerRadius="6" Padding="14,10"
+                                    BorderBrush="#2a2f3a" BorderThickness="1"
+                                    Grid.Row="1">
+                                <ItemsControl ItemsSource="{Binding DatabaseStats}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal" Spacing="24"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Label}" Foreground="#5a5f6f" FontSize="10"/>
+                                                <TextBlock Text="{Binding Value}" Foreground="#e4e6eb"
+                                                           FontSize="14" FontWeight="SemiBold"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Border>
+
+                            <!-- User List -->
+                            <ListBox Grid.Row="2" ItemsSource="{Binding Users}"
+                                     SelectedItem="{Binding SelectedUser}"
+                                     Background="Transparent" BorderThickness="0"
+                                     Margin="0,4,0,0">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Padding="12,10" Margin="0,2" Background="#1a1e27"
+                                                CornerRadius="6"
+                                                BorderBrush="#2a2f3a" BorderThickness="1">
+                                            <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto"
+                                                  ColumnSpacing="12" RowSpacing="4">
+                                                <TextBlock Text="{Binding DisplayName}" Foreground="#e4e6eb"
+                                                           FontSize="13" FontWeight="SemiBold"/>
+                                                <Border Grid.Column="1" CornerRadius="4" Padding="8,3"
+                                                        Background="#13161d" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Role}" Foreground="#3b82f6"
+                                                               FontSize="10" FontWeight="SemiBold"/>
+                                                </Border>
+                                                <Border Grid.Column="2" CornerRadius="4" Padding="8,3"
+                                                        Background="{Binding StatusColor}"
+                                                        VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding StatusBadge}"
+                                                               Foreground="White" FontSize="10"/>
+                                                </Border>
+                                                <TextBlock Grid.Row="1" Grid.ColumnSpan="3"
+                                                           Text="{Binding Email}" Foreground="#5a5f6f"
+                                                           FontSize="11"/>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </TabItem>
+                </TabControl>
+
+                <!-- ═══ Footer ═══ -->
+                <Button Grid.Row="2" Content="Close Panel"
+                        Classes="ghost"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Height="34" FontSize="12" Margin="0,16,0,0"
+                        Command="{Binding TogglePanelCommand}"/>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

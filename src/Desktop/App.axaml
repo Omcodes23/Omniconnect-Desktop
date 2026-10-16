@@ -1,0 +1,166 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:OmniConnect.Desktop.Converters;assembly=OmniConnect.Desktop"
+             x:Class="OmniConnect.Desktop.App">
+  <Application.Resources>
+    <local:EnumToBoolConverter x:Key="EnumToBoolConverter"/>
+    <!-- Professional Dark Theme - No gradients, solid colors -->
+
+    <!-- Backgrounds (Darker) -->
+    <Color x:Key="BgColor">#0a0d14</Color>
+    <Color x:Key="CardSurface">#13161d</Color>
+    <Color x:Key="CardElevated">#1a1e27</Color>
+    <Color x:Key="CardHover">#21252e</Color>
+
+    <!-- Primary (Single professional blue) -->
+    <Color x:Key="PrimaryBlue">#3b82f6</Color>
+    <Color x:Key="PrimaryHover">#2563eb</Color>
+    <Color x:Key="PrimaryPressed">#1d4ed8</Color>
+
+    <!-- Semantic Colors -->
+    <Color x:Key="SuccessGreen">#10b981</Color>
+    <Color x:Key="DangerRed">#ef4444</Color>
+    <Color x:Key="WarningOrange">#f59e0b</Color>
+
+    <!-- Text -->
+    <Color x:Key="TextPrimary">#e4e6eb</Color>
+    <Color x:Key="TextSecondary">#8b92a5</Color>
+    <Color x:Key="TextMuted">#5a5f6f</Color>
+
+    <!-- Borders -->
+    <Color x:Key="BorderSubtle">#2a2f3a</Color>
+    <Color x:Key="BorderStrong">#3d4454</Color>
+
+    <!-- Status -->
+    <Color x:Key="OnlineGreen">#10b981</Color>
+    <Color x:Key="AwayYellow">#f59e0b</Color>
+    <Color x:Key="BusyRed">#ef4444</Color>
+    <Color x:Key="OfflineGray">#64748b</Color>
+
+    <!-- Brushes -->
+    <SolidColorBrush x:Key="BgBrush" Color="{StaticResource BgColor}"/>
+    <SolidColorBrush x:Key="CardBrush" Color="{StaticResource CardSurface}"/>
+    <SolidColorBrush x:Key="CardElevatedBrush" Color="{StaticResource CardElevated}"/>
+    <SolidColorBrush x:Key="PrimaryBrush" Color="{StaticResource PrimaryBlue}"/>
+    <SolidColorBrush x:Key="TextBrush" Color="{StaticResource TextPrimary}"/>
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondary}"/>
+    <SolidColorBrush x:Key="TextMutedBrush" Color="{StaticResource TextMuted}"/>
+    <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderSubtle}"/>
+    <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessGreen}"/>
+    <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource DangerRed}"/>
+  </Application.Resources>
+
+  <Application.Styles>
+    <FluentTheme />
+
+    <!-- TabControl & TabItem Styles -->
+    <Style Selector="TabControl">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Padding" Value="0"/>
+    </Style>
+
+    <Style Selector="TabItem">
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+      <Setter Property="Padding" Value="12,10"/>
+      <Setter Property="Margin" Value="0"/>
+      <Setter Property="MinHeight" Value="36"/>
+      <Setter Property="BorderThickness" Value="0,0,0,2"/>
+      <Setter Property="BorderBrush" Value="Transparent"/>
+    </Style>
+
+    <Style Selector="TabItem:pointerover">
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+    </Style>
+
+    <Style Selector="TabItem:selected">
+      <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/>
+    </Style>
+
+    <Style Selector="TabItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent"/>
+    </Style>
+
+    <!-- ListBox & ListBoxItem Styles -->
+    <Style Selector="ListBox">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="0"/>
+    </Style>
+
+    <Style Selector="ListBoxItem">
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Margin" Value="0,2"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    </Style>
+
+    <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource CardElevatedBrush}"/>
+    </Style>
+
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource CardHover}"/>
+    </Style>
+
+    <!-- Button Styles -->
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="Padding" Value="16,10"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+
+    <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource PrimaryHover}"/>
+    </Style>
+
+    <Style Selector="Button.secondary">
+      <Setter Property="Background" Value="{StaticResource CardElevatedBrush}"/>
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+      <Setter Property="Padding" Value="12,8"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+    </Style>
+
+    <Style Selector="Button.secondary:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource CardHover}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource BorderStrong}"/>
+    </Style>
+
+    <Style Selector="Button.ghost">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+      <Setter Property="Padding" Value="8,6"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+
+    <Style Selector="Button.ghost:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource CardHover}"/>
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+    </Style>
+
+    <!-- TextBox Styles -->
+    <Style Selector="TextBox.modern">
+      <Setter Property="Background" Value="{StaticResource CardSurface}"/>
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Padding" Value="12,10"/>
+      <Setter Property="FontSize" Value="13"/>
+    </Style>
+
+    <Style Selector="TextBox.modern:focus /template/ Border#PART_BorderElement">
+      <Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/>
+      <Setter Property="BorderThickness" Value="1.5"/>
+    </Style>
+  </Application.Styles>
+</Application>

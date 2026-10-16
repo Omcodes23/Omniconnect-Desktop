@@ -1,0 +1,90 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:OmniConnect.Desktop.Views"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
+        x:Class="OmniConnect.Desktop.MainWindow"
+        x:CompileBindings="False"
+        Title="OmniConnect"
+        WindowStartupLocation="CenterScreen"
+        MinWidth="800" MinHeight="500">
+    <Grid Background="#0a0d14">
+        <!-- Main Content Layer -->
+        <Grid>
+            <views:LoginView x:Name="LoginControl" IsVisible="True"/>
+            <views:ChatView x:Name="ChatControl" IsVisible="False"/>
+        </Grid>
+
+        <!-- Notification Flyout Layer -->
+        <Border CornerRadius="8" Background="#13161d" Padding="16" Width="320" MaxHeight="420"
+                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,12,12,0"
+                IsVisible="{Binding IsNotificationFlyoutOpen, FallbackValue=False}"
+                BorderBrush="#2a2f3a" BorderThickness="1">
+            <Grid RowDefinitions="Auto,*,Auto">
+                <!-- Flyout Header -->
+                <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+                    <TextBlock Text="Notifications" Foreground="#e4e6eb" FontSize="15" FontWeight="SemiBold"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                        <Button Content="Read All"
+                                Classes="ghost" Foreground="#3b82f6"
+                                FontSize="11" Padding="6,4"
+                                VerticalAlignment="Center"
+                                Command="{Binding MarkAllNotificationsReadCommand}"/>
+                        <Button Content="X" Classes="ghost" Foreground="#5a5f6f"
+                                Width="24" Height="24" FontSize="12"
+                                Padding="0"
+                                VerticalAlignment="Center"
+                                Command="{Binding ToggleNotificationsCommand}"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Notification Items -->
+                <ScrollViewer Grid.Row="1">
+                    <ItemsControl ItemsSource="{Binding Notifications}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="12" Margin="0,4" Background="#1a1e27" CornerRadius="6"
+                                        BorderBrush="#2a2f3a" BorderThickness="1">
+                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                                        <!-- Type Icon Badge -->
+                                        <Border CornerRadius="6" Width="28" Height="28" Background="#13161d">
+                                            <TextBlock Text="{Binding TypeIcon}" Foreground="#3b82f6" FontSize="11"
+                                                       FontWeight="Bold"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <!-- Notification Content -->
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Title}" Foreground="#e4e6eb" FontSize="12" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding Body}" Foreground="#8b92a5" FontSize="11"
+                                                       TextTrimming="CharacterEllipsis" MaxWidth="180"/>
+                                        </StackPanel>
+                                        <!-- Time -->
+                                        <TextBlock Grid.Column="2" Text="{Binding TimeAgo}" Foreground="#5a5f6f"
+                                                   FontSize="10" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <!-- Empty State -->
+                <TextBlock Grid.Row="2" Text="No new notifications" Foreground="#5a5f6f" FontSize="12"
+                           HorizontalAlignment="Center" Margin="0,12,0,0"/>
+            </Grid>
+        </Border>
+
+        <!-- Call Overlay Layer -->
+        <views:CallOverlay x:Name="CallOverlayControl" IsVisible="False"/>
+
+        <!-- Admin Panel Layer -->
+        <views:AdminView x:Name="AdminPanelControl" IsVisible="False"/>
+
+        <!-- Profile Dialog Layer -->
+        <views:ProfileDialog x:Name="ProfileDialogControl" IsVisible="False"/>
+
+        <!-- Network Graph Layer -->
+        <views:NetworkGraphView x:Name="NetworkGraphControl" IsVisible="False"/>
+    </Grid>
+</Window>

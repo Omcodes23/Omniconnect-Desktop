@@ -1,0 +1,210 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="480" d:DesignHeight="640"
+             x:Class="OmniConnect.Desktop.Views.ProfileDialog"
+             x:CompileBindings="False"
+             IsVisible="{Binding IsDialogOpen}"
+             Background="#80000000">
+    <Grid VerticalAlignment="Center" HorizontalAlignment="Center" Width="460" MaxHeight="620">
+        <Border CornerRadius="12" Background="#13161d" Padding="28"
+                BorderBrush="#2a2f3a" BorderThickness="1">
+            <ScrollViewer>
+                <StackPanel Spacing="0">
+                    <!-- ═══ Header ═══ -->
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,20">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Border Width="32" Height="32" CornerRadius="6"
+                                    Background="{StaticResource PrimaryBrush}">
+                                <TextBlock Text="ID" Foreground="White" FontSize="11" FontWeight="Bold"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Profile &amp; Settings" FontSize="18" FontWeight="SemiBold"
+                                           Foreground="#e4e6eb"/>
+                                <TextBlock Text="Manage your account"
+                                           Foreground="#5a5f6f" FontSize="11"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="X" Width="32" Height="32" Padding="0"
+                                Classes="ghost" FontSize="14"
+                                VerticalAlignment="Center"
+                                Command="{Binding CloseCommand}"/>
+                    </Grid>
+
+                    <!-- ═══ Avatar Section ═══ -->
+                    <StackPanel HorizontalAlignment="Center" Spacing="8" Margin="0,0,0,24">
+                        <!-- Avatar Circle -->
+                        <Border CornerRadius="40" Width="80" Height="80"
+                                Background="{StaticResource PrimaryBrush}"
+                                HorizontalAlignment="Center" Padding="3">
+                            <Border CornerRadius="38" Width="74" Height="74" Background="#13161d">
+                                <Border CornerRadius="37" Width="72" Height="72"
+                                        ClipToBounds="True" Background="#1a1e27">
+                                    <TextBlock Text="{Binding DisplayName}"
+                                               Foreground="White" FontSize="28" FontWeight="Bold"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </Border>
+                        </Border>
+                        <!-- Edit Avatar Button -->
+                        <Button Classes="ghost" FontSize="11" Padding="12,5"
+                                Foreground="#3b82f6"
+                                VerticalAlignment="Center"
+                                Command="{Binding EditAvatarCommand}">
+                            <TextBlock Text="Change Avatar"/>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- ═══ Status Message ═══ -->
+                    <TextBlock Text="{Binding StatusMessage}" Foreground="#10b981" FontSize="12"
+                               HorizontalAlignment="Center" TextWrapping="Wrap" Margin="0,0,0,12"
+                               IsVisible="{Binding IsStatusError, Converter={x:Null}}"/>
+                    <TextBlock Text="{Binding StatusMessage}" Foreground="#ef4444" FontSize="12"
+                               HorizontalAlignment="Center" TextWrapping="Wrap" Margin="0,-8,0,12"
+                               IsVisible="{Binding IsStatusError}"/>
+
+                    <!-- ═══ Profile Fields ═══ -->
+                    <StackPanel Spacing="12">
+                        <!-- Display Name -->
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Display Name" Foreground="#8b92a5" FontSize="12" FontWeight="Medium"/>
+                            <TextBox Text="{Binding DisplayName}"
+                                     PlaceholderText="Your display name"
+                                     Classes="modern"/>
+                        </StackPanel>
+
+                        <!-- Username (read-only) -->
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Username" Foreground="#8b92a5" FontSize="12" FontWeight="Medium"/>
+                            <TextBox Text="{Binding Username}" IsReadOnly="True"
+                                     Classes="modern"
+                                     Foreground="#5a5f6f"/>
+                        </StackPanel>
+
+                        <!-- Email (read-only) -->
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Email" Foreground="#8b92a5" FontSize="12" FontWeight="Medium"/>
+                            <TextBox Text="{Binding Email}" IsReadOnly="True"
+                                     Classes="modern"
+                                     Foreground="#5a5f6f"/>
+                        </StackPanel>
+
+                        <!-- Bio -->
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Bio" Foreground="#8b92a5" FontSize="12" FontWeight="Medium"/>
+                            <TextBox Text="{Binding Bio}"
+                                     PlaceholderText="Tell others about yourself..."
+                                     Classes="modern"
+                                     AcceptsReturn="True" MaxLines="3"
+                                     Height="70" TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <!-- Save Button -->
+                        <Button Command="{Binding SaveProfileCommand}"
+                                Classes="primary" HorizontalAlignment="Stretch"
+                                VerticalAlignment="Center"
+                                Height="36" FontSize="13"
+                                Margin="0,4,0,0"
+                                IsEnabled="{Binding IsSaving, Converter={x:Null}}">
+                            <TextBlock Text="Save Profile" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Button>
+
+                        <!-- ═══ Divider ═══ -->
+                        <Border Height="1" Background="#2a2f3a" Margin="0,6"/>
+
+                        <!-- ═══ Change Password ═══ -->
+                        <StackPanel Spacing="8">
+                            <Button Command="{Binding TogglePasswordFormCommand}"
+                                    Classes="ghost" HorizontalAlignment="Stretch"
+                                    VerticalAlignment="Center"
+                                    Height="34" FontSize="12" Foreground="#3b82f6">
+                                <TextBlock Text="Change Password" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Button>
+
+                            <StackPanel Spacing="12" IsVisible="{Binding ShowPasswordForm}">
+                                <!-- Old Password -->
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="Current Password" Foreground="#8b92a5" FontSize="11"/>
+                                    <TextBox Text="{Binding OldPassword}" PasswordChar="*"
+                                             Classes="modern"/>
+                                </StackPanel>
+
+                                <!-- New Password -->
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="New Password" Foreground="#8b92a5" FontSize="11"/>
+                                    <TextBox Text="{Binding NewPassword}" PasswordChar="*"
+                                             Classes="modern"/>
+                                </StackPanel>
+
+                                <!-- Confirm Password -->
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="Confirm New Password" Foreground="#8b92a5" FontSize="11"/>
+                                    <TextBox Text="{Binding ConfirmPassword}" PasswordChar="*"
+                                             Classes="modern"/>
+                                </StackPanel>
+
+                                <Button Command="{Binding ChangePasswordCommand}"
+                                        Classes="secondary" HorizontalAlignment="Stretch"
+                                        VerticalAlignment="Center"
+                                        Height="34" FontSize="12"
+                                        Foreground="#3b82f6">
+                                    <TextBlock Text="Update Password" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- ═══ Divider ═══ -->
+                    <Border Height="1" Background="#2a2f3a" Margin="0,6"/>
+
+                    <!-- ═══ Device Info ═══ -->
+                    <StackPanel Spacing="8" IsVisible="{Binding HasDeviceInfo}">
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                            <TextBlock Text="Device Information" Foreground="#e4e6eb" FontSize="13" FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+
+                        <Border CornerRadius="6" Background="#1a1e27" Padding="12" BorderBrush="#2a2f3a" BorderThickness="1">
+                            <StackPanel Spacing="8">
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                                    <TextBlock Text="Machine Name:" Foreground="#8b92a5" FontSize="11"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding DeviceName}" Foreground="#e4e6eb"
+                                               FontSize="11" FontWeight="SemiBold"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                                    <TextBlock Text="OS:" Foreground="#8b92a5" FontSize="11"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding DevicePlatform}" Foreground="#e4e6eb"
+                                               FontSize="11" FontWeight="SemiBold"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                                    <TextBlock Text="Model:" Foreground="#8b92a5" FontSize="11"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding DeviceModel}" Foreground="#e4e6eb"
+                                               FontSize="11" FontWeight="SemiBold"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                                    <TextBlock Text="IP Address:" Foreground="#8b92a5" FontSize="11"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding DeviceIpAddress}" Foreground="#e4e6eb"
+                                               FontSize="11" FontWeight="SemiBold"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- ═══ Footer ═══ -->
+                    <Button Content="Close"
+                            Classes="ghost"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Height="34" FontSize="12" Margin="0,16,0,0"
+                            Command="{Binding CloseCommand}"/>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+    </Grid>
+</UserControl>
