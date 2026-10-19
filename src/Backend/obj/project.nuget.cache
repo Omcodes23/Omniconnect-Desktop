@@ -61,6 +61,18 @@
       "targetGraphs": [
         "net10.0"
       ]
+    },
+    {
+      "code": "NU1903",
+      "level": "Warning",
+      "message": "Package 'Microsoft.AspNetCore.SignalR.Common' 10.0.10 has a known high severity vulnerability, https://github.com/advisories/GHSA-334f-vvp4-7g6p",
+      "projectPath": "D:\\WorkingEnv\\Omniconnect\\Desktop-Application\\src\\Backend\\OmniConnect.Backend.csproj",
+      "warningLevel": 1,
+      "filePath": "D:\\WorkingEnv\\Omniconnect\\Desktop-Application\\src\\Backend\\OmniConnect.Backend.csproj",
+      "libraryId": "Microsoft.AspNetCore.SignalR.Common",
+      "targetGraphs": [
+        "net10.0"
+      ]
     }
   ]
 }

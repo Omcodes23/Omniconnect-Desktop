@@ -18,3 +18,4 @@ D:\WorkingEnv\Omniconnect\Desktop-Application\src\Shared\obj\Debug\net10.0\OmniC
 D:\WorkingEnv\Omniconnect\Desktop-Application\src\Shared\obj\Debug\net10.0\refint\OmniConnect.Shared.dll
 D:\WorkingEnv\Omniconnect\Desktop-Application\src\Shared\obj\Debug\net10.0\OmniConnect.Shared.pdb
 D:\WorkingEnv\Omniconnect\Desktop-Application\src\Shared\obj\Debug\net10.0\ref\OmniConnect.Shared.dll
+D:\WorkingEnv\Omniconnect\Desktop-Application\src\Shared\obj\Debug\net10.0\OmniConnect.Shared.sourcelink.json

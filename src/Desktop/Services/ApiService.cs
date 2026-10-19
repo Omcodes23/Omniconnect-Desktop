@@ -18,6 +18,8 @@ public class ApiService
     }
 
     /// <summary>Starts the ephemeral direct-message listener for LAN chat.</summary>
+    public DirectMessageListener GetDirectListener() => _directListener;
+
     public void StartDirectListener(int port = 5001) => _directListener.Start(port);
 
     /// <summary>Stops the ephemeral direct-message listener and clears queues.</summary>

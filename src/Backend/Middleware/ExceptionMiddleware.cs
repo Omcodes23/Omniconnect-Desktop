@@ -20,9 +20,25 @@ public class ExceptionMiddleware
         {
             await _next(context);
         }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        {
+            // The caller hung up (window closed, navigation, timeout). There is
+            // nobody left to answer, so this is normal traffic, not a fault.
+            _logger.LogDebug(
+                "Request aborted by client: {Method} {Path}",
+                context.Request.Method, context.Request.Path);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "An unhandled exception occurred: {Message}", ex.Message);
+
+            // Headers may already be on the wire (e.g. streaming); writing a
+            // status at that point would throw a second, misleading error.
+            if (context.Response.HasStarted)
+            {
+                throw;
+            }
+
             context.Response.ContentType = "application/json";
             context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
 

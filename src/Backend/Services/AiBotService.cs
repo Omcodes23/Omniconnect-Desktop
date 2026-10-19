@@ -7,18 +7,25 @@ using OmniConnect.Shared.Enums;
 
 namespace OmniConnect.Backend.Services;
 
+/// <summary>
+/// Live state of companion mode (the AI exposed as a chat node).
+/// The model is always a local GGUF from <see cref="OmniConnect.Shared.Models.ModelCatalog"/>;
+/// when <see cref="ModelId"/> is null the currently selected model is used.
+/// </summary>
 public interface IAiBotState
 {
     bool IsEnabled { get; set; }
-    string Provider { get; set; }
-    string Model { get; set; }
+    string? ModelId { get; set; }
+    string? OwnerDeviceId { get; set; }
+    string? OwnerDeviceName { get; set; }
 }
 
 public class AiBotState : IAiBotState
 {
     public bool IsEnabled { get; set; }
-    public string Provider { get; set; } = "OpenAI";
-    public string Model { get; set; } = "gpt-4o-mini";
+    public string? ModelId { get; set; }
+    public string? OwnerDeviceId { get; set; }
+    public string? OwnerDeviceName { get; set; }
 }
 
 /// <summary>
@@ -27,14 +34,21 @@ public class AiBotState : IAiBotState
 /// </summary>
 public class AiBotService : BackgroundService
 {
-    private static readonly Guid AiUserId = Guid.Parse("00000000-0000-0000-0000-0000000000ff");
+    /// <summary>Display name of the AI chat node.</summary>
+    public const string DisplayName = "AI Assistant";
+
+    public static readonly Guid AiUserId = Guid.Parse("00000000-0000-0000-0000-0000000000ff");
     private const string AiUsername = "ai_assistant";
-    private const string AiDisplayName = "AI Assistant";
+    private const string AiDisplayName = DisplayName;
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IHubContext<ChatHub> _hubContext;
     private readonly IAiBotState _state;
     private readonly ILogger<AiBotService> _logger;
+
+    // Only the polling task touches these fields.
+    private DateTime _cursorSentAt;
+    private Guid _cursorId;
 
     public AiBotService(
         IServiceScopeFactory scopeFactory,
@@ -75,21 +89,45 @@ public class AiBotService : BackgroundService
             }, stoppingToken);
         }
 
-        // Periodically check for new messages sent to the AI user
+        // Periodically check for new messages sent to the AI user. The cursor
+        // starts at the newest existing message so a restart never re-answers
+        // history, then advances chronologically as messages are handled.
         _ = Task.Run(async () =>
         {
-            Guid lastProcessedId = Guid.Empty;
+            try
+            {
+                await InitializeCursorAsync(stoppingToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not initialize AI message cursor; starting from now.");
+                _cursorSentAt = DateTime.UtcNow;
+                _cursorId = Guid.Empty;
+            }
+
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
                 {
-                    await ProcessMessagesAsync(lastProcessedId);
+                    await ProcessMessagesAsync(stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    return;
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "AI Bot processing error");
                 }
-                await Task.Delay(2000, stoppingToken);
+
+                try
+                {
+                    await Task.Delay(2000, stoppingToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
             }
         }, stoppingToken);
 
@@ -115,7 +153,7 @@ public class AiBotService : BackgroundService
                     DisplayName = AiDisplayName,
                     PasswordHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString()),
                     IsEmailVerified = true,
-                    Bio = "AI Assistant — I can help with anything! Powered by " + _state.Provider,
+                    Bio = "AI Assistant — I run entirely on this device.",
                 };
                 db.Users.Add(aiUser);
                 await db.SaveChangesAsync(stoppingToken);
@@ -135,48 +173,75 @@ public class AiBotService : BackgroundService
         }
     }
 
-    private async Task ProcessMessagesAsync(Guid lastProcessedId)
+    private async Task InitializeCursorAsync(CancellationToken stoppingToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var latest = await db.Messages
+            .Where(m => m.ReceiverId == AiUserId)
+            .OrderByDescending(m => m.SentAt)
+            .ThenByDescending(m => m.Id)
+            .FirstOrDefaultAsync(stoppingToken);
+
+        if (latest is null)
+        {
+            _cursorSentAt = DateTime.UtcNow;
+            _cursorId = Guid.Empty;
+        }
+        else
+        {
+            _cursorSentAt = latest.SentAt;
+            _cursorId = latest.Id;
+        }
+    }
+
+    private async Task ProcessMessagesAsync(CancellationToken stoppingToken)
     {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var aiService = scope.ServiceProvider.GetRequiredService<AiService>();
 
-        // Find unprocessed messages addressed to the AI user
+        var afterAt = _cursorSentAt;
+        var afterId = _cursorId;
+
+        // Find messages addressed to the AI user that are newer than the cursor.
+        // SentAt is the primary key of the ordering; Id only breaks exact ties.
         var messages = await db.Messages
-            .Where(m => m.ReceiverId == AiUserId && m.Id.CompareTo(lastProcessedId) > 0)
+            .Where(m => m.ReceiverId == AiUserId &&
+                (m.SentAt > afterAt || (m.SentAt == afterAt && m.Id.CompareTo(afterId) > 0)))
             .OrderBy(m => m.SentAt)
+            .ThenBy(m => m.Id)
             .Take(5)
-            .ToListAsync();
+            .ToListAsync(stoppingToken);
 
         foreach (var msg in messages)
         {
-            if (!_state.IsEnabled)
-            {
-                // Send auto-reply that AI is disabled
-                var reply = new Message
-                {
-                    SenderId = AiUserId,
-                    ReceiverId = msg.SenderId,
-                    Content = "🤖 AI Assistant is currently disabled. The owner can enable it in AI Settings.",
-                    Type = MessageType.Text,
-                    SentAt = DateTime.UtcNow,
-                    Status = MessageStatus.Sent,
-                };
-                db.Messages.Add(reply);
-                lastProcessedId = msg.Id;
-                await db.SaveChangesAsync();
-
-                await _hubContext.Clients.Group($"user_{msg.SenderId}")
-                    .SendAsync("MessageReceived", MapToDto(reply, reply.SenderId));
-                continue;
-            }
-
             try
             {
+                if (!_state.IsEnabled)
+                {
+                    // Send auto-reply that AI is disabled
+                    var reply = new Message
+                    {
+                        SenderId = AiUserId,
+                        ReceiverId = msg.SenderId,
+                        Content = "🤖 AI Assistant is currently disabled. The owner can enable it in AI Settings.",
+                        Type = MessageType.Text,
+                        SentAt = DateTime.UtcNow,
+                        Status = MessageStatus.Sent,
+                    };
+                    db.Messages.Add(reply);
+                    await db.SaveChangesAsync(stoppingToken);
+
+                    await _hubContext.Clients.Group($"user_{msg.SenderId}")
+                        .SendAsync("MessageReceived", MapToDto(reply, reply.SenderId), stoppingToken);
+                    continue;
+                }
+
                 // Generate AI response
                 var request = new Shared.DTOs.AiChatRequest(
-                    _state.Provider,
-                    _state.Model,
+                    _state.ModelId,
                     msg.Content,
                     null,
                     null
@@ -194,37 +259,52 @@ public class AiBotService : BackgroundService
                     ReplyToId = msg.Id,
                 };
                 db.Messages.Add(aiReply);
-                lastProcessedId = msg.Id;
-                await db.SaveChangesAsync();
+                await db.SaveChangesAsync(stoppingToken);
 
                 // Send real-time notification
                 await _hubContext.Clients.Group($"user_{msg.SenderId}")
-                    .SendAsync("MessageReceived", MapToDto(aiReply, aiReply.SenderId));
+                    .SendAsync("MessageReceived", MapToDto(aiReply, aiReply.SenderId), stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "AI response generation failed");
-                var errorReply = new Message
+                try
                 {
-                    SenderId = AiUserId,
-                    ReceiverId = msg.SenderId,
-                    Content = $"⚠️ Sorry, I encountered an error: {ex.Message}",
-                    Type = MessageType.Text,
-                    SentAt = DateTime.UtcNow,
-                    Status = MessageStatus.Failed,
-                };
-                db.Messages.Add(errorReply);
-                lastProcessedId = msg.Id;
-                await db.SaveChangesAsync();
+                    var errorReply = new Message
+                    {
+                        SenderId = AiUserId,
+                        ReceiverId = msg.SenderId,
+                        Content = $"⚠️ Sorry, I encountered an error: {ex.Message}",
+                        Type = MessageType.Text,
+                        SentAt = DateTime.UtcNow,
+                        Status = MessageStatus.Failed,
+                    };
+                    db.Messages.Add(errorReply);
+                    await db.SaveChangesAsync(stoppingToken);
 
-                await _hubContext.Clients.Group($"user_{msg.SenderId}")
-                    .SendAsync("MessageReceived", MapToDto(errorReply, errorReply.SenderId));
+                    await _hubContext.Clients.Group($"user_{msg.SenderId}")
+                        .SendAsync("MessageReceived", MapToDto(errorReply, errorReply.SenderId), stoppingToken);
+                }
+                catch (Exception notifyEx)
+                {
+                    _logger.LogError(notifyEx, "Could not send AI error reply");
+                }
+            }
+            finally
+            {
+                // Advance exactly once per handled message, whatever the outcome.
+                _cursorSentAt = msg.SentAt;
+                _cursorId = msg.Id;
             }
         }
     }
 
     private static Shared.DTOs.MessageDto MapToDto(Message m, Guid senderId) => new(
-        m.Id, senderId, "AI Assistant", null,
+        m.Id, senderId, DisplayName, null,
         m.ReceiverId, null, null,
         (Shared.Enums.MessageType)m.Type, m.Content,
         null, null, null, (Shared.Enums.MessageStatus)m.Status,

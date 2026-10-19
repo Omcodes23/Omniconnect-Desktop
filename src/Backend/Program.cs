@@ -71,23 +71,19 @@ builder.Services.AddScoped<NotificationService>();
 builder.Services.AddScoped<AnalyticsService>();
 builder.Services.AddScoped<SyncService>();
 builder.Services.AddScoped<AiService>();
+builder.Services.AddSingleton<ModelManager>();
+builder.Services.AddSingleton<LocalInferenceEngine>();
 builder.Services.AddScoped<AdminService>();
 builder.Services.AddScoped<RoutingService>();
 builder.Services.AddSingleton<RoutingEngine>();
 builder.Services.AddSingleton<DeviceDiscoveryService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<DeviceDiscoveryService>());
-builder.Services.AddHttpClient<AiService>()
-    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
-    {
-        ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
-    });
 builder.Services.AddHttpClient("DeviceRegistration")
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
     {
         ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
     });
 builder.Services.Configure<DeviceDiscoveryOptions>(builder.Configuration.GetSection("DeviceDiscovery"));
-builder.Services.AddHttpClient<OllamaService>();
 builder.Services.AddHostedService<AiBotService>();
 builder.Services.AddSingleton<IAiBotState, AiBotState>();
 
@@ -96,6 +92,8 @@ builder.Services.AddSignalR(options =>
 {
     options.EnableDetailedErrors = true;
     options.MaximumParallelInvocationsPerClient = 5;
+    // Call video frames are base64 JPEG; the default 32 KB is too small.
+    options.MaximumReceiveMessageSize = 1024 * 1024;
 }).AddJsonProtocol(options =>
 {
     options.PayloadSerializerOptions.PropertyNameCaseInsensitive = true;

@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using OmniConnect.Desktop.Services;
@@ -11,6 +13,7 @@ public partial class CallViewModel : ViewModelBase
     private ApiService? _api;
     private SignalRService? _signalR;
     private System.Timers.Timer? _timer;
+    private CallMediaService? _media;
 
     [ObservableProperty] private string _callerName = string.Empty;
     [ObservableProperty] private string? _callerAvatar;
@@ -37,11 +40,23 @@ public partial class CallViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsConnected));
         OnPropertyChanged(nameof(ShowAnswerReject));
         OnPropertyChanged(nameof(ShowEndCall));
+        OnPropertyChanged(nameof(ShowVideo));
+        OnPropertyChanged(nameof(ShowAvatar));
+    }
+
+    partial void OnCallTypeChanged(string value)
+    {
+        OnPropertyChanged(nameof(IsVideoCall));
+        OnPropertyChanged(nameof(ShowVideo));
+        OnPropertyChanged(nameof(ShowAvatar));
     }
 
     [ObservableProperty] private bool _isMuted;
     [ObservableProperty] private bool _isSpeakerOn;
     [ObservableProperty] private bool _isCallActive;
+    [ObservableProperty] private bool _isCameraOn = true;
+    [ObservableProperty] private Bitmap? _localVideoBitmap;
+    [ObservableProperty] private Bitmap? _remoteVideoBitmap;
 
     partial void OnIsCallActiveChanged(bool value)
     {
@@ -78,6 +93,9 @@ public partial class CallViewModel : ViewModelBase
     public bool IsConnected => CallStatus == "Connected";
     public bool ShowAnswerReject => IsIncoming && IsRinging;
     public bool ShowEndCall => IsCallActive && !ShowAnswerReject;
+    public bool IsVideoCall => string.Equals(CallType, "Video", StringComparison.OrdinalIgnoreCase);
+    public bool ShowVideo => IsVideoCall && IsConnected;
+    public bool ShowAvatar => !ShowVideo;
 
     public ObservableCollection<CallHistoryItem> CallHistory { get; } = new();
 
@@ -116,6 +134,8 @@ public partial class CallViewModel : ViewModelBase
         CallStatus = "Ringing";
         IsIncoming = true;
         IsCallActive = true;
+        IsCameraOn = true;
+        ClearVideo();
     }
 
     public void StartOutgoingCall(Guid calleeId, string calleeName, string? calleeAvatar, string type)
@@ -132,6 +152,8 @@ public partial class CallViewModel : ViewModelBase
         CallStatus = "Ringing";
         IsIncoming = false;
         IsCallActive = true;
+        IsCameraOn = true;
+        ClearVideo();
         StartTimer();
 
         if (_api != null)
@@ -151,6 +173,7 @@ public partial class CallViewModel : ViewModelBase
     public void HandleCallAccepted(CallDto call)
     {
         CallStatus = "Connected";
+        StartMedia();
         CallAccepted?.Invoke();
     }
 
@@ -159,6 +182,7 @@ public partial class CallViewModel : ViewModelBase
         CallStatus = "Ended";
         CallRejected?.Invoke();
         StopTimer();
+        StopMedia();
         IsCallActive = false;
     }
 
@@ -167,7 +191,124 @@ public partial class CallViewModel : ViewModelBase
         CallStatus = "Ended";
         CallEnded?.Invoke();
         StopTimer();
+        StopMedia();
         IsCallActive = false;
+    }
+
+    /// <summary>Starts Internet call media once the call is answered. Idempotent.</summary>
+    public void StartMedia()
+    {
+        if (_media != null || _signalR == null) return;
+
+        var peerId = IsIncoming ? CallerId : CalleeId;
+        if (peerId == Guid.Empty) return;
+
+        try
+        {
+            _media = new CallMediaService(peerId, _signalR.SendCallMedia);
+            _media.RemoteVideoFrame += OnRemoteVideoFrame;
+            _media.LocalVideoFrame += OnLocalVideoFrame;
+            _media.Start(IsVideoCall);
+            OnPropertyChanged(nameof(ShowVideo));
+        }
+        catch
+        {
+            _media = null;
+        }
+    }
+
+    public void StopMedia()
+    {
+        if (_media == null)
+        {
+            ClearVideo();
+            return;
+        }
+
+        try
+        {
+            _media.RemoteVideoFrame -= OnRemoteVideoFrame;
+            _media.LocalVideoFrame -= OnLocalVideoFrame;
+            _media.Dispose();
+        }
+        catch { }
+
+        _media = null;
+        ClearVideo();
+    }
+
+    /// <summary>Routes one relayed Internet media frame from the other party.</summary>
+    public void HandleMediaReceived(string senderId, string kind, string payload)
+    {
+        if (_media == null) return;
+
+        var peerId = IsIncoming ? CallerId : CalleeId;
+        if (!string.Equals(senderId, peerId.ToString(), StringComparison.OrdinalIgnoreCase)) return;
+
+        byte[] data;
+        try { data = Convert.FromBase64String(payload); }
+        catch { return; }
+
+        if (kind == "audio")
+        {
+            _media.AddRemoteAudio(data);
+        }
+        else if (kind == "video")
+        {
+            _media.FeedRemoteVideo(data);
+        }
+    }
+
+    private void OnRemoteVideoFrame(byte[] jpeg)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            try
+            {
+                var old = RemoteVideoBitmap;
+                RemoteVideoBitmap = new Bitmap(new MemoryStream(jpeg));
+                old?.Dispose();
+            }
+            catch { }
+        });
+    }
+
+    private void OnLocalVideoFrame(byte[] jpeg)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            try
+            {
+                var old = LocalVideoBitmap;
+                LocalVideoBitmap = new Bitmap(new MemoryStream(jpeg));
+                old?.Dispose();
+            }
+            catch { }
+        });
+    }
+
+    private void ClearVideo()
+    {
+        var local = LocalVideoBitmap;
+        var remote = RemoteVideoBitmap;
+        LocalVideoBitmap = null;
+        RemoteVideoBitmap = null;
+        try { local?.Dispose(); } catch { }
+        try { remote?.Dispose(); } catch { }
+    }
+
+    [RelayCommand]
+    private void ToggleVideo()
+    {
+        IsCameraOn = !IsCameraOn;
+        _media?.SetVideoEnabled(IsCameraOn);
+
+        if (!IsCameraOn)
+        {
+            var old = LocalVideoBitmap;
+            LocalVideoBitmap = null;
+            try { old?.Dispose(); } catch { }
+        }
     }
 
     [RelayCommand]
@@ -175,6 +316,7 @@ public partial class CallViewModel : ViewModelBase
     {
         if (!IsIncoming) return;
         CallStatus = "Connected";
+        StartMedia();
         CallAccepted?.Invoke();
         StartTimer();
 
@@ -191,6 +333,7 @@ public partial class CallViewModel : ViewModelBase
         CallStatus = IsIncoming ? "Missed" : "Ended";
         CallRejected?.Invoke();
         StopTimer();
+        StopMedia();
         IsCallActive = false;
 
         if (_api != null && CallId != Guid.Empty)
@@ -206,6 +349,7 @@ public partial class CallViewModel : ViewModelBase
         CallStatus = "Ended";
         CallEnded?.Invoke();
         StopTimer();
+        StopMedia();
         IsCallActive = false;
 
         if (_api != null && CallId != Guid.Empty)
@@ -219,6 +363,7 @@ public partial class CallViewModel : ViewModelBase
     private void ToggleMute()
     {
         IsMuted = !IsMuted;
+        _media?.SetMuted(IsMuted);
         MuteToggled?.Invoke(IsMuted);
     }
 
@@ -226,6 +371,7 @@ public partial class CallViewModel : ViewModelBase
     private void ToggleSpeaker()
     {
         IsSpeakerOn = !IsSpeakerOn;
+        _media?.SetSpeakerOn(IsSpeakerOn);
         SpeakerToggled?.Invoke(IsSpeakerOn);
     }
 

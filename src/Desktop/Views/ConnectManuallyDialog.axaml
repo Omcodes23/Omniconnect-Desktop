@@ -1,0 +1,41 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="300"
+        x:Class="OmniConnect.Desktop.Views.ConnectManuallyDialog"
+        x:CompileBindings="False"
+        Title="Connect Manually"
+        Width="420" Height="320"
+        WindowStartupLocation="CenterOwner"
+        Background="#13161d"
+        CanResize="False">
+    <Border Background="#13161d" BorderBrush="#2a2f3a" BorderThickness="1" CornerRadius="8" Padding="20" Margin="10">
+        <StackPanel Spacing="16">
+            <TextBlock Text="Connect Manually" Foreground="#e4e6eb" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+            <TextBlock Text="Enter the IP address and port of a peer running OmniConnect on the same LAN." Foreground="#8b92a5" FontSize="11" TextWrapping="Wrap" HorizontalAlignment="Center"/>
+
+            <StackPanel Spacing="12">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="IP Address" Foreground="#8b92a5" FontSize="11" FontWeight="SemiBold"/>
+                    <TextBox x:Name="IpTextBox" PlaceholderText="192.168.1.x" Classes="modern" Padding="10,7" FontSize="13"/>
+                </StackPanel>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Port" Foreground="#8b92a5" FontSize="11" FontWeight="SemiBold"/>
+                    <TextBox x:Name="PortTextBox" PlaceholderText="5001" Classes="modern" Padding="10,7" FontSize="13" Text="5001"/>
+                </StackPanel>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Display Name (optional)" Foreground="#8b92a5" FontSize="11" FontWeight="SemiBold"/>
+                    <TextBox x:Name="NameTextBox" PlaceholderText="Nearby Device" Classes="modern" Padding="10,7" FontSize="13"/>
+                </StackPanel>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+                <Button x:Name="CancelButton" Content="Cancel" Classes="ghost" Padding="16,6" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <Button x:Name="ConnectButton" Content="Connect" Classes="primary" Padding="16,6" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

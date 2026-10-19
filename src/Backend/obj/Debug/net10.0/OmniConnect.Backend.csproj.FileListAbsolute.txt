@@ -142,3 +142,4 @@ D:\WorkingEnv\Omniconnect\Desktop-Application\src\Backend\obj\Debug\net10.0\refi
 D:\WorkingEnv\Omniconnect\Desktop-Application\src\Backend\obj\Debug\net10.0\OmniConnect.Backend.pdb
 D:\WorkingEnv\Omniconnect\Desktop-Application\src\Backend\obj\Debug\net10.0\OmniConnect.Backend.genruntimeconfig.cache
 D:\WorkingEnv\Omniconnect\Desktop-Application\src\Backend\obj\Debug\net10.0\ref\OmniConnect.Backend.dll
+D:\WorkingEnv\Omniconnect\Desktop-Application\src\Backend\obj\Debug\net10.0\OmniConnect.Backend.sourcelink.json

@@ -1,0 +1,67 @@
+Determining if the include file pthread.h exists failed with the following output:
+Change Dir: D:/WorkingEnv/Omniconnect/Desktop-Application/native/build/win-x64/CMakeFiles/CMakeTmp
+
+Run Build Command(s):C:/Users/omvat/AppData/Local/Android/Sdk/cmake/3.22.1/bin/ninja.exe cmTC_f2604 && [1/2] Building C object CMakeFiles\cmTC_f2604.dir\CheckIncludeFile.c.obj
+FAILED: CMakeFiles/cmTC_f2604.dir/CheckIncludeFile.c.obj 
+D:\Configs\dotnet\Community\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64\cl.exe  /nologo   /DWIN32 /D_WINDOWS  /Zi /Ob0 /Od /RTC1 -MDd -std:c11 /showIncludes /FoCMakeFiles\cmTC_f2604.dir\CheckIncludeFile.c.obj /FdCMakeFiles\cmTC_f2604.dir\ /FS -c D:\WorkingEnv\Omniconnect\Desktop-Application\native\build\win-x64\CMakeFiles\CMakeTmp\CheckIncludeFile.c
+D:\WorkingEnv\Omniconnect\Desktop-Application\native\build\win-x64\CMakeFiles\CMakeTmp\CheckIncludeFile.c(1): fatal error C1083: Cannot open include file: 'pthread.h': No such file or directory
+ninja: build stopped: subcommand failed.
+
+
+
+Performing C SOURCE FILE Test HAS_AVX512_1 failed with the following compile output:
+Change Dir: D:/WorkingEnv/Omniconnect/Desktop-Application/native/build/win-x64/CMakeFiles/CMakeTmp
+
+Run Build Command(s):C:/Users/omvat/AppData/Local/Android/Sdk/cmake/3.22.1/bin/ninja.exe cmTC_d9596 && [1/2] Building C object CMakeFiles\cmTC_d9596.dir\src.c.obj
+[2/2] Linking C executable cmTC_d9596.exe
+
+
+...and run output:
+Illegal instruction
+Return value: FAILED_TO_RUN
+Source file was:
+
+    #include <immintrin.h>
+    int main()
+    {
+        __m512i a = _mm512_set_epi8(0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0);
+        __m512i b = a;
+        __mmask64 equality_mask = _mm512_cmp_epi8_mask(a, b, _MM_CMPINT_EQ);
+        return 0;
+    }
+
+Performing C SOURCE FILE Test HAS_AVX512_2 failed with the following compile output:
+Change Dir: D:/WorkingEnv/Omniconnect/Desktop-Application/native/build/win-x64/CMakeFiles/CMakeTmp
+
+Run Build Command(s):C:/Users/omvat/AppData/Local/Android/Sdk/cmake/3.22.1/bin/ninja.exe cmTC_e7550 && [1/2] Building C object CMakeFiles\cmTC_e7550.dir\src.c.obj
+[2/2] Linking C executable cmTC_e7550.exe
+
+
+...and run output:
+Illegal instruction
+Return value: FAILED_TO_RUN
+Source file was:
+
+    #include <immintrin.h>
+    int main()
+    {
+        __m512i a = _mm512_set_epi8(0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0);
+        __m512i b = a;
+        __mmask64 equality_mask = _mm512_cmp_epi8_mask(a, b, _MM_CMPINT_EQ);
+        return 0;
+    }
+

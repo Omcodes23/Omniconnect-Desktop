@@ -96,6 +96,38 @@ public class ChatHub : Hub
         await Clients.Group($"user_{targetUserId}").SendAsync("CallSignalReceived", userId, signalData);
     }
 
+    // Maximum base64 payload accepted for a single media frame. Audio frames are
+    // ~1.7 KB; JPEG frames are capped well below the 1 MB hub receive limit.
+    private const int MaxCallMediaPayloadChars = 900_000;
+
+    /// <summary>
+    /// Relays one media frame (PCM16 audio or JPEG video) to the other call party.
+    /// Media never leaves the authenticated Internet hub: no LAN or Bluetooth path.
+    /// </summary>
+    public async Task SendCallMedia(Guid targetUserId, string kind, string payload)
+    {
+        if (targetUserId == Guid.Empty) return;
+        if (string.IsNullOrEmpty(kind) || string.IsNullOrEmpty(payload)) return;
+        if (payload.Length > MaxCallMediaPayloadChars) return;
+
+        // Strict allow-list; reject anything that is not call media.
+        if (kind != "audio" && kind != "video") return;
+
+        var userId = GetUserId().ToString();
+
+        // TEMP verification instrumentation (remove after call testing).
+        try
+        {
+            System.IO.File.AppendAllText(
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "omni_callmedia.log"),
+                $"{DateTime.UtcNow:O} {userId} -> {targetUserId} {kind} {payload.Length}{Environment.NewLine}");
+        }
+        catch { }
+
+        await Clients.Group($"user_{targetUserId}")
+            .SendAsync("CallMediaReceived", userId, kind, payload);
+    }
+
     public static string? GetUserConnectionId(string userId)
     {
         return _connections.FirstOrDefault(x => x.Value == userId).Key;

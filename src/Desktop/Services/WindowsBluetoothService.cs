@@ -59,16 +59,38 @@ public sealed class WindowsBluetoothService : IDisposable
         }
     }
 
+    /// <summary>Start the RFCOMM server so peers can connect to this device.</summary>
+    /// <returns>false on plain desktop .NET (WinRT Rfcomm not wired).</returns>
+    public Task<bool> StartServerAsync()
+    {
+        return Task.FromResult(false);
+    }
+
+    /// <summary>Stop the RFCOMM server.</summary>
+    public Task StopServerAsync()
+    {
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Connect to a paired peer by its Bluetooth MAC address.</summary>
+    /// <returns>false on plain desktop .NET.</returns>
+    public Task<bool> ConnectAsync(string deviceAddress)
+    {
+        return Task.FromResult(false);
+    }
+
     /// <summary>Send a framed chat message over Bluetooth to a peer.</summary>
     /// <returns>false when the peer transport is not actually available.</returns>
     public Task<bool> SendAsync(string deviceId, string fromPeerId, string fromPeerName,
         string toPeerId, string content)
     {
-        // A real RFCOMM implementation would open a connected RFCOMM socket to
-        // the paired peer device and frame each message with BluetoothFrame.
-        // On desktop .NET without the WinRT Rfcomm API this cannot be done,
-        // so report not-sent rather than pretending.
         return Task.FromResult(false);
+    }
+
+    /// <summary>Disconnect from the current peer.</summary>
+    public Task DisconnectAsync()
+    {
+        return Task.CompletedTask;
     }
 
     /// <summary>Drain an incoming ephemeral message from the queue.</summary>
@@ -122,6 +144,7 @@ public sealed class WindowsBluetoothService : IDisposable
         }
     }
 
+    /// <summary>Inject a test message (for testing without real hardware).</summary>
     internal void InjectIncoming(BluetoothIncomingMessage msg)
     {
         _incoming.Enqueue(msg);

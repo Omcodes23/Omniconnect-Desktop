@@ -19,6 +19,7 @@ public class SignalRService : IAsyncDisposable
     public event Action<CallDto>? OnCallRejected;
     public event Action<CallDto>? OnCallEnded;
     public event Action<string, string>? OnCallSignalReceived;
+    public event Action<string, string, string>? OnCallMediaReceived;
     public event Action<DeviceDiscoveryDto>? OnDeviceDiscovered;
 
     public SignalRService(string baseUrl = "http://localhost:5000")
@@ -87,6 +88,11 @@ public class SignalRService : IAsyncDisposable
             OnCallSignalReceived?.Invoke(senderId, signalData);
         });
 
+        _connection.On<string, string, string>("CallMediaReceived", (senderId, kind, payload) =>
+        {
+            OnCallMediaReceived?.Invoke(senderId, kind, payload);
+        });
+
         _connection.On<DeviceDiscoveryDto>("DeviceDiscovered", device =>
         {
             OnDeviceDiscovered?.Invoke(device);
@@ -130,6 +136,12 @@ public class SignalRService : IAsyncDisposable
     {
         if (_connection?.State == HubConnectionState.Connected)
             await _connection.InvokeAsync("SendCallSignal", targetUserId, signalData);
+    }
+
+    public async Task SendCallMedia(Guid targetUserId, string kind, string payload)
+    {
+        if (_connection?.State == HubConnectionState.Connected)
+            await _connection.InvokeAsync("SendCallMedia", targetUserId, kind, payload);
     }
 
     public HubConnectionState? State => _connection?.State;

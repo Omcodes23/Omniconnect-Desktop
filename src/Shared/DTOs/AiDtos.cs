@@ -1,9 +1,12 @@
 namespace OmniConnect.Shared.DTOs;
 
 // ── Chat ────────────────────────────────────────────────────────────────
+// `Model` is the id from ModelCatalog (e.g. "qwen2.5-1.5b-instruct-q4km").
+// OmniConnect runs models locally; there is no remote provider field any more.
+// Older clients that still send a "provider" property are harmless — the
+// ASP.NET JSON binder simply ignores unknown members.
 public record AiChatRequest(
-    string Provider,
-    string Model,
+    string? Model,
     string Message,
     Guid? ConversationId,
     List<AiMessageDto>? History
@@ -22,12 +25,60 @@ public record AiMessageDto(
     DateTime Timestamp
 );
 
+// ── Local model management ──────────────────────────────────────────────
+// Progress is surfaced by polling the model list while a download runs, so no
+// extra streaming endpoint or hub is required.
+public record AiModelDto(
+    string Id,
+    string Name,
+    string Description,
+    string Family,
+    string Quantization,
+    long SizeBytes,
+    string SizeLabel,
+    bool IsDownloaded,
+    bool IsDownloading,
+    double DownloadProgress,   // 0..1, only meaningful while IsDownloading
+    string Status                // "not-downloaded" | "downloading" | "downloaded" | "error"
+);
+
+public record AiModelListResponse(
+    List<AiModelDto> Models,
+    string? ActiveModelId
+);
+
+public record AiModelDownloadRequest(
+    string ModelId
+);
+
+public record AiModelDownloadResponse(
+    string ModelId,
+    string Status
+);
+
+// ── Companion mode (AI as a chat node) ──────────────────────────────────
+public record AiBotToggleRequest(
+    bool Enabled,
+    string? ModelId,
+    string? DeviceId = null,
+    string? DeviceName = null
+);
+
+public record AiBotStatusResponse(
+    bool Enabled,
+    string? ModelId,
+    string DisplayName,
+    string Status,   // "online" | "offline" | "loading" | "no-model"
+    string? ModelName = null,
+    string? OwnerDeviceId = null,
+    string? OwnerDeviceName = null
+);
+
 // ── Translation ─────────────────────────────────────────────────────────
 public record AiTranslateRequest(
     string Text,
     string SourceLanguage,
-    string TargetLanguage,
-    string? Provider
+    string TargetLanguage
 );
 
 public record AiTranslateResponse(
@@ -39,8 +90,7 @@ public record AiTranslateResponse(
 // ── Summarization ───────────────────────────────────────────────────────
 public record AiSummarizeRequest(
     string Text,
-    int? MaxLength,
-    string? Provider
+    int? MaxLength
 );
 
 public record AiSummarizeResponse(
@@ -51,8 +101,7 @@ public record AiSummarizeResponse(
 
 // ── OCR ─────────────────────────────────────────────────────────────────
 public record AiOcrRequest(
-    string ImageBase64,
-    string? Provider
+    string ImageBase64
 );
 
 public record AiOcrResponse(
@@ -73,8 +122,7 @@ public record AiSmartReplyResponse(
 
 // ── Embeddings ───────────────────────────────────────────────────────────
 public record AiEmbeddingRequest(
-    string Text,
-    string? Provider
+    string Text
 );
 
 public record AiEmbeddingResponse(

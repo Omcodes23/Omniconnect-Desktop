@@ -1,0 +1,129 @@
+The system is: Windows - 10.0.26300 - AMD64
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" succeeded.
+Compiler: D:/Configs/dotnet/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe 
+Build flags: 
+Id flags:  
+
+The output was:
+0
+Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36248 for x64
+Copyright (C) Microsoft Corporation.  All rights reserved.
+
+CMakeCXXCompilerId.cpp
+Microsoft (R) Incremental Linker Version 14.51.36248.0
+Copyright (C) Microsoft Corporation.  All rights reserved.
+
+/out:CMakeCXXCompilerId.exe 
+CMakeCXXCompilerId.obj 
+
+
+Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CMakeCXXCompilerId.exe"
+
+Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CMakeCXXCompilerId.obj"
+
+The CXX compiler identification is MSVC, found in "D:/WorkingEnv/Omniconnect/Desktop-Application/native/build/win-x64/CMakeFiles/3.22.1-g37088a8-dirty/CompilerIdCXX/CMakeCXXCompilerId.exe"
+
+Detecting CXX compiler ABI info compiled with the following output:
+Change Dir: D:/WorkingEnv/Omniconnect/Desktop-Application/native/build/win-x64/CMakeFiles/CMakeTmp
+
+Run Build Command(s):C:/Users/omvat/AppData/Local/Android/Sdk/cmake/3.22.1/bin/ninja.exe cmTC_57e45 && [1/2] Building CXX object CMakeFiles\cmTC_57e45.dir\CMakeCXXCompilerABI.cpp.obj
+[2/2] Linking CXX executable cmTC_57e45.exe
+
+
+
+Compiling the C compiler identification source file "CMakeCCompilerId.c" succeeded.
+Compiler: D:/Configs/dotnet/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe 
+Build flags: 
+Id flags:  
+
+The output was:
+0
+Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36248 for x64
+Copyright (C) Microsoft Corporation.  All rights reserved.
+
+CMakeCCompilerId.c
+Microsoft (R) Incremental Linker Version 14.51.36248.0
+Copyright (C) Microsoft Corporation.  All rights reserved.
+
+/out:CMakeCCompilerId.exe 
+CMakeCCompilerId.obj 
+
+
+Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "CMakeCCompilerId.exe"
+
+Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "CMakeCCompilerId.obj"
+
+The C compiler identification is MSVC, found in "D:/WorkingEnv/Omniconnect/Desktop-Application/native/build/win-x64/CMakeFiles/3.22.1-g37088a8-dirty/CompilerIdC/CMakeCCompilerId.exe"
+
+Detecting C compiler ABI info compiled with the following output:
+Change Dir: D:/WorkingEnv/Omniconnect/Desktop-Application/native/build/win-x64/CMakeFiles/CMakeTmp
+
+Run Build Command(s):C:/Users/omvat/AppData/Local/Android/Sdk/cmake/3.22.1/bin/ninja.exe cmTC_e9787 && [1/2] Building C object CMakeFiles\cmTC_e9787.dir\CMakeCCompilerABI.c.obj
+[2/2] Linking C executable cmTC_e9787.exe
+
+
+
+Performing C SOURCE FILE Test HAS_AVX_1 succeeded with the following compile output:
+Change Dir: D:/WorkingEnv/Omniconnect/Desktop-Application/native/build/win-x64/CMakeFiles/CMakeTmp
+
+Run Build Command(s):C:/Users/omvat/AppData/Local/Android/Sdk/cmake/3.22.1/bin/ninja.exe cmTC_9c8c0 && [1/2] Building C object CMakeFiles\cmTC_9c8c0.dir\src.c.obj
+[2/2] Linking C executable cmTC_9c8c0.exe
+
+
+...and run output:
+
+Return value: 1
+Source file was:
+
+    #include <immintrin.h>
+    int main()
+    {
+        __m256 a;
+        a = _mm256_set1_ps(0);
+        return 0;
+    }
+
+Performing C SOURCE FILE Test HAS_AVX2_1 succeeded with the following compile output:
+Change Dir: D:/WorkingEnv/Omniconnect/Desktop-Application/native/build/win-x64/CMakeFiles/CMakeTmp
+
+Run Build Command(s):C:/Users/omvat/AppData/Local/Android/Sdk/cmake/3.22.1/bin/ninja.exe cmTC_b7c49 && [1/2] Building C object CMakeFiles\cmTC_b7c49.dir\src.c.obj
+[2/2] Linking C executable cmTC_b7c49.exe
+
+
+...and run output:
+
+Return value: 1
+Source file was:
+
+    #include <immintrin.h>
+    int main()
+    {
+        __m256i a = {0};
+        a = _mm256_abs_epi16(a);
+        __m256i x;
+        _mm256_extract_epi64(x, 0); // we rely on this in our AVX2 code
+        return 0;
+    }
+
+Performing C SOURCE FILE Test HAS_FMA_1 succeeded with the following compile output:
+Change Dir: D:/WorkingEnv/Omniconnect/Desktop-Application/native/build/win-x64/CMakeFiles/CMakeTmp
+
+Run Build Command(s):C:/Users/omvat/AppData/Local/Android/Sdk/cmake/3.22.1/bin/ninja.exe cmTC_f595d && [1/2] Building C object CMakeFiles\cmTC_f595d.dir\src.c.obj
+[2/2] Linking C executable cmTC_f595d.exe
+
+
+...and run output:
+
+Return value: 1
+Source file was:
+
+    #include <immintrin.h>
+    int main()
+    {
+        __m256 acc = _mm256_setzero_ps();
+        const __m256 d = _mm256_setzero_ps();
+        const __m256 p = _mm256_setzero_ps();
+        acc = _mm256_fmadd_ps( d, p, acc );
+        return 0;
+    }
+

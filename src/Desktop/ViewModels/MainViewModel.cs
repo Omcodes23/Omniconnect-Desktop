@@ -1,9 +1,14 @@
 using System.Collections.ObjectModel;
+using System.Linq;
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using OmniConnect.Desktop.Services;
+using OmniConnect.Desktop.Views;
 using OmniConnect.Shared.DTOs;
 using OmniConnect.Shared.Enums;
+using OmniConnect.Shared.Models;
 
 namespace OmniConnect.Desktop.ViewModels;
 
@@ -15,6 +20,8 @@ public partial class MainViewModel : ViewModelBase
     private string _selfDeviceId = "";
     private string _serverDeviceId = "";
     private Avalonia.Threading.DispatcherTimer? _discoveryTimer;
+    private LanDiscoveryService? _lanDiscovery;
+    private WindowsBluetoothService? _bluetoothService;
 
     // ── Ephemeral peer-to-peer chat (LAN / Bluetooth, no backend, no DB) ──
     private string? _ephemeralPeerId;
@@ -22,6 +29,12 @@ public partial class MainViewModel : ViewModelBase
     private int _ephemeralPeerPort;
     private string _ephemeralPeerName = string.Empty;
     private Avalonia.Threading.DispatcherTimer? _directPollTimer;
+    private TransportType _ephemeralTransport = TransportType.Lan; // Track which transport is active
+
+    // Track LAN-discovered devices separately for merging
+    private readonly Dictionary<string, Services.DiscoveredDevice> _lanDevices = new(StringComparer.OrdinalIgnoreCase);
+    // Bluetooth devices only on Mobile (Windows desktop stub doesn't discover)
+    // private readonly Dictionary<string, Services.DiscoveredDevice> _btDevices = new(StringComparer.OrdinalIgnoreCase);
 
     public MainViewModel(ApiService api, SignalRService signalR)
     {
@@ -30,6 +43,11 @@ public partial class MainViewModel : ViewModelBase
 
         ProfileVm = new ProfileViewModel(api);
         NetworkGraphVm = new NetworkGraphViewModel(api);
+
+        // The call view model needs the API (to initiate/accept/end calls) and the
+        // SignalR hub (to relay call media). Without this it rings locally forever
+        // and never reaches the peer.
+        CallVm.SetServices(api, signalR);
 
         SetupSignalRHandlers();
     }
@@ -69,6 +87,9 @@ public partial class MainViewModel : ViewModelBase
     /// True when showing the normal DB-backed chat (no direct session).
     public bool IsRegularChatActive => _ephemeralPeerId == null;
 
+    /// Call controls are Internet-only and never offered to the AI companion.
+    public bool CanCallSelectedFriend => SelectedFriend is { IsInternet: true, IsAi: false };
+
     // ── Panel Properties ─────────────────────────────────────────────
     [ObservableProperty] private bool _isAiPanelOpen;
     [ObservableProperty] private bool _isNotificationFlyoutOpen;
@@ -103,6 +124,7 @@ public partial class MainViewModel : ViewModelBase
 
     partial void OnSelectedFriendChanged(FriendItem? value)
     {
+        OnPropertyChanged(nameof(CanCallSelectedFriend));
         if (value != null) LoadConversation(value.Id);
     }
 
@@ -121,6 +143,8 @@ public partial class MainViewModel : ViewModelBase
 
         // Register this desktop as a device so other clients can discover it
         _selfDeviceId = $"desktop-{Environment.MachineName}";
+        AiVm.SetDeviceIdentity(_selfDeviceId, $"Desktop ({Environment.MachineName})");
+        var localIp = GetLocalIpAddress();
         try
         {
             await _api.RegisterDeviceAsync(
@@ -128,12 +152,62 @@ public partial class MainViewModel : ViewModelBase
                 deviceName: $"Desktop ({Environment.MachineName})",
                 deviceModel: Environment.OSVersion.VersionString,
                 userId: _auth.User.Id,
-                userName: _auth.User.DisplayName);
+                userName: _auth.User.DisplayName,
+                ip: localIp,
+                port: 5001);
         }
         catch
         {
             // Best-effort — don't block startup on registration
         }
+
+        // Start LAN discovery service (UDP multicast + broadcast).
+        // Best-effort: if the discovery port is unavailable, chat/API must still work.
+        try
+        {
+            _lanDiscovery = new LanDiscoveryService();
+            _lanDiscovery.SetSelfInfo(
+                deviceId: _selfDeviceId,
+                deviceName: $"Desktop ({Environment.MachineName})",
+                deviceModel: Environment.OSVersion.VersionString,
+                userId: _auth.User.Id.ToString(),
+                userName: _auth.User.DisplayName,
+                ipAddress: localIp,
+                port: 5001);
+            _lanDiscovery.DeviceDiscovered += OnLanDeviceDiscovered;
+            _lanDiscovery.DeviceLost += OnLanDeviceLost;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MainViewModel] LAN discovery unavailable: {ex.Message}");
+            _lanDiscovery = null;
+        }
+
+        // Start direct listener so peers can reach us over LAN.
+        try
+        {
+            _api.StartDirectListener();
+            System.Diagnostics.Debug.WriteLine($"[MainViewModel] Direct listener on port {_api.DirectListenerPort}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MainViewModel] Direct listener unavailable: {ex.Message}");
+        }
+
+        // Bluetooth service (stub on desktop - real implementation on Mobile/Android)
+        _bluetoothService = new WindowsBluetoothService();
+        var btAvailable = await _bluetoothService.ProbeAsync();
+        if (btAvailable)
+        {
+            await _bluetoothService.StartServerAsync();
+            _bluetoothService.MessageReceived += OnBluetoothMessageReceived;
+        }
+        else
+        {
+            // Bluetooth not available on this platform - that's OK, LAN works
+            System.Diagnostics.Debug.WriteLine("[MainViewModel] Bluetooth not available on this platform");
+        }
+
         IsConnected = true;
         await LoadDataAsync();
 
@@ -149,6 +223,111 @@ public partial class MainViewModel : ViewModelBase
             await LoadInternetHostsAsync();
         };
         _discoveryTimer.Start();
+    }
+
+    private static string GetLocalIpAddress()
+    {
+        try
+        {
+            var host = System.Net.Dns.GetHostEntry(System.Net.Dns.GetHostName());
+            foreach (var ip in host.AddressList)
+            {
+                if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(ip))
+                    return ip.ToString();
+            }
+        }
+        catch { }
+        return "127.0.0.1";
+    }
+
+    private void OnLanDeviceDiscovered(Services.DiscoveredDevice device)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            _lanDevices[device.DeviceId] = device;
+            MergeDiscoveredDevices();
+        });
+    }
+
+    private void OnLanDeviceLost(string deviceId)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            _lanDevices.Remove(deviceId);
+            MergeDiscoveredDevices();
+        });
+    }
+
+    private void MergeDiscoveredDevices()
+    {
+        // Merge LAN-discovered devices with API-discovered devices
+        // LAN devices take precedence for direct chat (they have real IP/port)
+        var merged = new Dictionary<string, DeviceItem>(StringComparer.OrdinalIgnoreCase);
+
+        // First add API devices (from backend)
+        foreach (var d in DiscoveredDevices)
+        {
+            merged[d.DeviceId] = d;
+        }
+
+        // Then merge LAN devices (overwrites if same ID, adds if new)
+        foreach (var lan in _lanDevices.Values)
+        {
+            if (lan.DeviceId == _selfDeviceId || lan.DeviceId == _serverDeviceId) continue;
+
+            var transports = lan.AvailableTransports?
+                .Where(t => t.Equals("LAN", StringComparison.OrdinalIgnoreCase) || t.Equals("Bluetooth", StringComparison.OrdinalIgnoreCase))
+                .ToList() ?? new List<string> { "LAN" };
+            var transportsStr = transports.Count > 0 ? string.Join(", ", transports) : "LAN";
+
+            merged[lan.DeviceId] = new DeviceItem
+            {
+                DeviceId = lan.DeviceId,
+                DeviceName = lan.DeviceName,
+                DeviceModel = lan.DeviceModel,
+                Transport = "LAN",
+                TransportDetail = transportsStr,
+                IpAddress = lan.IpAddress,
+                Port = lan.Port,
+                UserId = Guid.TryParse(lan.UserId ?? "", out var uid) ? uid : null,
+                Status = "Online"
+            };
+        }
+
+        // Bluetooth devices merged from Mobile via backend (if any)
+        // Desktop stub doesn't discover Bluetooth locally
+
+        DiscoveredDevices.Clear();
+        foreach (var item in merged.Values.OrderBy(d => d.DeviceName))
+        {
+            DiscoveredDevices.Add(item);
+        }
+    }
+
+    private void OnBluetoothMessageReceived(BluetoothIncomingMessage msg)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (string.IsNullOrEmpty(msg.DeviceId) || string.IsNullOrEmpty(msg.FromPeerId))
+                return;
+
+            // If this peer matches our current direct session, add to ephemeral messages
+            if (_ephemeralPeerId == msg.FromPeerId && _ephemeralTransport == TransportType.Bluetooth)
+            {
+                if (!EphemeralMessages.Any(m => m.ClientMessageId == msg.ClientMessageId && m.Content == msg.Content))
+                {
+                    EphemeralMessages.Add(new EphemeralMessageItem
+                    {
+                        FromPeerId = msg.FromPeerId,
+                        FromPeerName = msg.FromPeerName ?? msg.DeviceId,
+                        Content = msg.Content,
+                        SentAt = msg.SentAt,
+                        IsIncoming = true,
+                        ClientMessageId = msg.ClientMessageId
+                    });
+                }
+            }
+        });
     }
 
     private void SetupSignalRHandlers()
@@ -257,11 +436,20 @@ public partial class MainViewModel : ViewModelBase
             });
         };
 
+        _signalR.OnCallMediaReceived += (senderId, kind, payload) =>
+        {
+            CallVm.HandleMediaReceived(senderId, kind, payload);
+        };
+
         _signalR.OnDeviceDiscovered += dto =>
         {
             // Ignore this machine and the backend node it is signed in to.
             if (dto.DeviceId == _selfDeviceId) return;
             if (!string.IsNullOrEmpty(_serverDeviceId) && dto.DeviceId == _serverDeviceId) return;
+
+            // The AI companion is an Internet-only node. It must never appear in
+            // the Nearby (LAN/Bluetooth) device list.
+            if (dto.Roles.HasFlag(DeviceRole.AiHost)) return;
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 var existing = DiscoveredDevices.FirstOrDefault(d => d.DeviceId == dto.DeviceId);
@@ -305,7 +493,8 @@ public partial class MainViewModel : ViewModelBase
                     Id = isRequester ? f.AddresseeId : f.RequesterId,
                     Name = isRequester ? f.AddresseeName : f.RequesterName,
                     Avatar = isRequester ? f.AddresseeAvatar : f.RequesterAvatar,
-                    Status = "Online"
+                    Status = "Online",
+                    IsInternet = true
                 });
             }
 
@@ -373,7 +562,8 @@ public partial class MainViewModel : ViewModelBase
             foreach (var d in devices.Where(x =>
                 !string.IsNullOrEmpty(x.DeviceId) &&
                 x.DeviceId != _selfDeviceId &&
-                x.DeviceId != serverDeviceId))
+                x.DeviceId != serverDeviceId &&
+                !x.Roles.HasFlag(DeviceRole.AiHost)))
             {
                 routes.TryGetValue(d.DeviceId, out var route);
                 var localTransports = d.AvailableTransports?
@@ -592,6 +782,43 @@ public partial class MainViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private async Task ConnectManuallyAsync()
+    {
+        var dialog = new ConnectManuallyDialog();
+        var mainWindow = (Avalonia.Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+        var result = await dialog.ShowDialog<bool>(mainWindow);
+        if (result == true && !string.IsNullOrWhiteSpace(dialog.IpAddress))
+        {
+            var peerId = $"manual-{dialog.IpAddress}:{dialog.Port}";
+            var peerName = string.IsNullOrWhiteSpace(dialog.DeviceName) ? $"Peer ({dialog.IpAddress})" : dialog.DeviceName;
+
+            // Create a temporary device entry for direct chat
+            var device = new DeviceItem
+            {
+                DeviceId = peerId,
+                DeviceName = peerName,
+                DeviceModel = "Manual Entry",
+                Transport = "LAN",
+                TransportDetail = "LAN",
+                IpAddress = dialog.IpAddress,
+                Port = dialog.Port,
+                UserId = null,
+                Status = "Online"
+            };
+
+            // Add to discovered devices so user sees it
+            if (!DiscoveredDevices.Any(d => d.DeviceId == peerId))
+            {
+                DiscoveredDevices.Insert(0, device);
+            }
+
+            // Open direct chat session
+            await OpenDirectChatSession(peerId, peerName, dialog.IpAddress, dialog.Port);
+            StatusText = $"Manual connect to {peerName} ({dialog.IpAddress}:{dialog.Port})";
+        }
+    }
+
+    [RelayCommand]
     private void ToggleNotifications()
     {
         IsNotificationFlyoutOpen = !IsNotificationFlyoutOpen;
@@ -658,12 +885,14 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private void StartCall(FriendItem friend)
     {
+        if (friend is not { CanCall: true }) return;
         CallVm.StartOutgoingCall(friend.Id, friend.Name, null, "Audio");
     }
 
     [RelayCommand]
     private void StartVideoCall(FriendItem friend)
     {
+        if (friend is not { CanCall: true }) return;
         CallVm.StartOutgoingCall(friend.Id, friend.Name, null, "Video");
     }
 
@@ -811,7 +1040,8 @@ public partial class MainViewModel : ViewModelBase
             {
                 Id = userId,
                 Name = displayName,
-                Status = "Online"
+                Status = "Online",
+                IsInternet = true
             };
             Friends.Insert(0, friend);
 
@@ -841,19 +1071,15 @@ public partial class MainViewModel : ViewModelBase
         _ephemeralPeerId = peerId;
         _ephemeralPeerName = peerName;
         _ephemeralPeerIp = peerIp;
-        _ephemeralPeerPort = 5001; // direct listener port, not server 5000
+        // Direct listener port, not the backend's 5000.
+        _ephemeralPeerPort = peerPort > 0 ? peerPort : 5001;
 
-        // Ensure listener is running so peer can reach us back.
-        try { _api.StartDirectListener(); StatusText = $"Direct session with {peerName} (fresh, no DB)"; } catch (Exception ex) { StatusText = $"Listener start failed: {ex.Message}"; }
+        // Ensure our own listener is running so the peer can reach us back.
+        try { _api.StartDirectListener(); StatusText = $"Direct session with {peerName} (fresh, no DB)"; }
+        catch (Exception ex) { StatusText = $"Listener start failed: {ex.Message}"; }
 
         OnPropertyChanged(nameof(IsDirectChatActive));
         OnPropertyChanged(nameof(IsRegularChatActive));
-        _ephemeralPeerName = peerName;
-        _ephemeralPeerIp = peerIp;
-        _ephemeralPeerPort = peerPort;
-
-        // Ensure our own direct listener is running so the peer can reach us.
-        try { _api.StartDirectListener(); StatusText = "Direct listener started on port 5001"; } catch (Exception ex) { StatusText = $"Listener error: {ex.Message}"; }
 
         SelectedFriend = null;
         SelectedCommunity = null;
@@ -882,37 +1108,55 @@ public partial class MainViewModel : ViewModelBase
         _directPollTimer = null;
     }
 
-    private async Task PollDirectMessagesAsync()
+    private Task PollDirectMessagesAsync()
     {
-        if (string.IsNullOrEmpty(_ephemeralPeerIp) || string.IsNullOrEmpty(_ephemeralPeerId)) return;
+        if (string.IsNullOrEmpty(_ephemeralPeerId)) return Task.CompletedTask;
 
         try
         {
-            var reachable = await _api.IsDirectPeerReachableAsync(_ephemeralPeerIp!, _ephemeralPeerPort);
-            if (!reachable) return;
+            // Drain this desktop's own listener only. Peers POST messages here,
+            // addressed to our device id. Draining a peer's remote queue would
+            // race that peer's own polling and steal its inbound messages.
+            var listener = _api.GetDirectListener();
+            if (listener == null) return Task.CompletedTask;
 
-            var received = await _api.FetchDirectMessagesAsync(_ephemeralPeerIp!, _ephemeralPeerPort, _ephemeralPeerId!);
-            foreach (var (fromId, fromName, content, type, sentAt) in received)
+            var entries = new List<DirectMessageEntry>();
+            entries.AddRange(listener.FetchQueued(_selfDeviceId));
+            if (!string.Equals(_selfDeviceId, _ephemeralPeerId, StringComparison.OrdinalIgnoreCase))
+                entries.AddRange(listener.FetchQueued(_ephemeralPeerId!));
+
+            if (entries.Count == 0) return Task.CompletedTask;
+
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                if (EphemeralMessages.Any(m => m.ClientMessageId == null || m.Content == content && m.SentAt == sentAt)) continue;
-                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                foreach (var entry in entries)
                 {
+                    bool duplicate = EphemeralMessages.Any(m =>
+                        string.Equals(m.FromPeerId, entry.FromPeerId, StringComparison.OrdinalIgnoreCase) &&
+                        m.Content == entry.Content &&
+                        m.SentAt == entry.SentAt);
+
+                    if (duplicate) continue;
+
                     EphemeralMessages.Add(new EphemeralMessageItem
                     {
-                        FromPeerId = fromId,
-                        FromPeerName = fromName,
-                        Content = content,
-                        Type = type,
-                        SentAt = sentAt,
-                        IsMe = string.Equals(fromId, _auth?.User?.Id.ToString() ?? _selfDeviceId, StringComparison.OrdinalIgnoreCase)
+                        FromPeerId = entry.FromPeerId,
+                        FromPeerName = entry.FromPeerName,
+                        Content = entry.Content,
+                        Type = entry.Type,
+                        SentAt = entry.SentAt,
+                        IsMe = false,
+                        ClientMessageId = entry.ClientMessageId
                     });
-                });
-            }
+                }
+            });
         }
-        catch
+        catch (Exception ex)
         {
-            // Swallow — polling is best-effort.
+            System.Diagnostics.Debug.WriteLine($"[MainViewModel] Direct poll failed: {ex.Message}");
         }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>Sends a direct ephemeral message to the current peer (no DB).</summary>
@@ -984,15 +1228,28 @@ public class EphemeralMessageItem
     public string Type { get; set; } = "Text";
     public DateTime SentAt { get; set; } = DateTime.UtcNow;
     public bool IsMe { get; set; }
+    public bool IsIncoming { get; set; }
     public string? ClientMessageId { get; set; }
 }
 
 public class FriendItem
 {
+    /// <summary>The backend AI companion user id.</summary>
+    public static readonly Guid AiAssistantId = Guid.Parse("00000000-0000-0000-0000-0000000000ff");
+
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? Avatar { get; set; }
     public string Status { get; set; } = "Offline";
+
+    /// <summary>True for Internet-backed friends. Calls are Internet-only.</summary>
+    public bool IsInternet { get; set; } = true;
+
+    /// <summary>True for the AI companion node. The companion never takes calls.</summary>
+    public bool IsAi => Id == AiAssistantId;
+
+    /// <summary>Call buttons are only offered for real Internet contacts.</summary>
+    public bool CanCall => IsInternet && !IsAi;
 }
 
 public class CommunityItem

@@ -7,42 +7,42 @@ using OmniConnect.Shared.DTOs;
 
 namespace OmniConnect.Desktop.ViewModels;
 
+/// <summary>
+/// AI chat panel, driven entirely by on-device models.
+///
+/// There is one UX: pick a model. If it is not downloaded yet, download it
+/// (with progress), then chat. The backend exposes the curated catalogue and
+/// the download manager; this view model never talks to any external service.
+/// </summary>
 public partial class AiViewModel : ViewModelBase
 {
     private readonly HttpClient _http;
     private string? _token;
+    private bool _polling;
+    private string? _deviceId;
+    private string? _deviceName;
 
+    // ── Chat state ─────────────────────────────────────────────────────────
     [ObservableProperty] private string _messageText = string.Empty;
-    [ObservableProperty] private string _selectedProvider = "OpenAI";
-    [ObservableProperty] private string _selectedModel = "gpt-4o";
     [ObservableProperty] private bool _isLoading;
     [ObservableProperty] private bool _isPanelOpen;
     [ObservableProperty] private AiConversationItem? _selectedConversation;
 
-    // ── Ollama-specific properties ─────────────────────────────────────────
-    [ObservableProperty] private string _ollamaSearchQuery = string.Empty;
-    [ObservableProperty] private string _downloadStatus = string.Empty;
-    [ObservableProperty] private double _downloadProgress;
-    [ObservableProperty] private bool _isDownloading;
+    // ── Model state ────────────────────────────────────────────────────────
+    [ObservableProperty] private LocalModelItem? _selectedModel;
+    [ObservableProperty] private bool _isModelBusy;
+    [ObservableProperty] private string _modelStatusText = "Loading models...";
+
+    // ── Companion mode (AI as a chat node) ─────────────────────────────────
+    [ObservableProperty] private bool _isCompanionEnabled;
+    [ObservableProperty] private string _companionStatusText = "Companion mode off";
 
     public ObservableCollection<AiConversationItem> Conversations { get; } = new();
     public ObservableCollection<AiMessageItem> Messages { get; } = new();
-    public ObservableCollection<OllamaModelItem> OllamaLocalModels { get; } = new();
-    public ObservableCollection<OllamaModelItem> OllamaSearchResults { get; } = new();
+    public ObservableCollection<LocalModelItem> Models { get; } = new();
 
-    public List<string> AvailableProviders { get; } = new() { "OpenAI", "Gemini", "Ollama", "Local" };
-
-    private readonly Dictionary<string, List<string>> _modelsByProvider = new()
-    {
-        ["OpenAI"] = new() { "gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo" },
-        ["Gemini"] = new() { "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash" },
-        ["Ollama"] = new() { "llama3.2", "mistral", "phi4", "gemma3", "deepseek-r1" },
-        ["Local"] = new() { "llama-3.1-8b", "mistral-7b", "phi-3" }
-    };
-
-    public List<string> AvailableModels => _modelsByProvider.TryGetValue(SelectedProvider, out var models) ? models : new();
-
-    public bool IsOllamaSelected => SelectedProvider == "Ollama";
+    /// <summary>True once a model has finished downloading and can be chatted with.</summary>
+    public bool HasReadyModel => SelectedModel?.IsDownloaded == true;
 
     public AiViewModel()
     {
@@ -53,7 +53,276 @@ public partial class AiViewModel : ViewModelBase
     {
         _token = token;
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        _ = InitializeAsync();
     }
+
+    /// <summary>Loads models and companion status the first time the panel is used.</summary>
+    private async Task InitializeAsync()
+    {
+        await RefreshModelsAsync();
+        await RefreshCompanionStatusAsync();
+    }
+
+    partial void OnSelectedModelChanged(LocalModelItem? value)
+    {
+        OnPropertyChanged(nameof(HasReadyModel));
+    }
+
+    partial void OnSelectedConversationChanged(AiConversationItem? value)
+    {
+        if (value != null)
+        {
+            _ = SelectConversationAsync(value);
+        }
+    }
+
+    [RelayCommand]
+    private void TogglePanel()
+    {
+        IsPanelOpen = !IsPanelOpen;
+        if (IsPanelOpen)
+        {
+            _ = RefreshModelsAsync();
+        }
+    }
+
+    // ── Model management ───────────────────────────────────────────────────
+
+    public async Task RefreshModelsAsync()
+    {
+        if (_token == null) return;
+
+        try
+        {
+            var response = await _http.GetAsync("/api/ai/models");
+            if (!response.IsSuccessStatusCode) return;
+
+            var result = await response.Content.ReadFromJsonAsync<AiModelListResponse>();
+            if (result?.Models == null) return;
+
+            bool anyDownloading = false;
+            foreach (var dto in result.Models)
+            {
+                anyDownloading |= dto.IsDownloading;
+                ApplyModel(dto);
+            }
+
+            // Keep the selected model pointing at the catalogue's active model.
+            var active = SelectedModel != null
+                ? Models.FirstOrDefault(m => m.Id == SelectedModel.Id)
+                : null;
+            active ??= Models.FirstOrDefault(m => m.Id == result.ActiveModelId) ?? Models.FirstOrDefault();
+
+            if (!ReferenceEquals(active, SelectedModel))
+            {
+                SelectedModel = active;
+            }
+
+            RemoveStale(Models.Select(m => m.Id).ToHashSet());
+
+            ModelStatusText = anyDownloading
+                ? "Downloading..."
+                : HasReadyModel ? $"Ready: {SelectedModel!.Name}" : "Select a model to get started";
+
+            if (anyDownloading)
+            {
+                _ = PollWhileDownloadingAsync();
+            }
+        }
+        catch
+        {
+            ModelStatusText = "Could not reach the backend.";
+        }
+    }
+
+    private void ApplyModel(AiModelDto dto)
+    {
+        var item = Models.FirstOrDefault(m => m.Id == dto.Id);
+        if (item == null)
+        {
+            item = new LocalModelItem { Id = dto.Id };
+            Models.Add(item);
+        }
+
+        item.Name = dto.Name;
+        item.Description = dto.Description;
+        item.SizeLabel = dto.SizeLabel;
+        item.SizeBytes = dto.SizeBytes;
+        item.IsDownloaded = dto.IsDownloaded;
+        item.IsDownloading = dto.IsDownloading;
+        item.DownloadProgress = Math.Clamp(dto.DownloadProgress * 100.0, 0, 100);
+        item.Status = dto.Status;
+    }
+
+    private void RemoveStale(HashSet<string> liveIds)
+    {
+        for (int i = Models.Count - 1; i >= 0; i--)
+        {
+            if (!liveIds.Contains(Models[i].Id))
+            {
+                Models.RemoveAt(i);
+            }
+        }
+    }
+
+    /// <summary>Polls the model list while a download runs so progress advances.</summary>
+    private async Task PollWhileDownloadingAsync()
+    {
+        if (_polling) return;
+        _polling = true;
+        try
+        {
+            while (Models.Any(m => m.IsDownloading))
+            {
+                await Task.Delay(800);
+                await RefreshModelsAsync();
+            }
+        }
+        finally
+        {
+            _polling = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task DownloadModelAsync(LocalModelItem? model)
+    {
+        if (model == null || _token == null) return;
+
+        try
+        {
+            var response = await _http.PostAsJsonAsync("/api/ai/models/download",
+                new AiModelDownloadRequest(model.Id));
+            if (!response.IsSuccessStatusCode)
+            {
+                ModelStatusText = $"Could not start download ({response.StatusCode}).";
+                return;
+            }
+
+            model.IsDownloading = true;
+            model.Status = "downloading";
+            ModelStatusText = $"Downloading {model.Name}...";
+            OnPropertyChanged(nameof(HasReadyModel));
+            _ = PollWhileDownloadingAsync();
+        }
+        catch (Exception ex)
+        {
+            ModelStatusText = $"Download failed: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private async Task UseModelAsync(LocalModelItem? model)
+    {
+        if (model == null || !model.IsDownloaded || _token == null) return;
+
+        try
+        {
+            var response = await _http.PostAsJsonAsync("/api/ai/models/select",
+                new AiModelDownloadRequest(model.Id));
+            if (response.IsSuccessStatusCode)
+            {
+                SelectedModel = model;
+                ModelStatusText = $"Ready: {model.Name}";
+                OnPropertyChanged(nameof(HasReadyModel));
+            }
+        }
+        catch
+        {
+            ModelStatusText = "Could not select the model.";
+        }
+    }
+
+    [RelayCommand]
+    private async Task DeleteModelAsync(LocalModelItem? model)
+    {
+        if (model == null || _token == null) return;
+
+        try
+        {
+            var response = await _http.DeleteAsync($"/api/ai/models/{model.Id}");
+            if (response.IsSuccessStatusCode)
+            {
+                await RefreshModelsAsync();
+            }
+        }
+        catch
+        {
+            ModelStatusText = "Could not delete the model file.";
+        }
+    }
+
+    // ── Companion mode ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Identifies the device that owns companion mode so other clients can see
+    /// which machine enabled the AI node. Called once the desktop registers
+    /// itself with the backend.
+    /// </summary>
+    public void SetDeviceIdentity(string deviceId, string deviceName)
+    {
+        _deviceId = deviceId;
+        _deviceName = deviceName;
+    }
+
+    private async Task RefreshCompanionStatusAsync()
+    {
+        if (_token == null) return;
+        try
+        {
+            var status = await _http.GetFromJsonAsync<AiBotStatusResponse>("/api/ai/bot/status");
+            if (status != null)
+            {
+                IsCompanionEnabled = status.Enabled;
+                CompanionStatusText = DescribeCompanion(status);
+            }
+        }
+        catch
+        {
+            // Companion status is non-critical; leave the default text.
+        }
+    }
+
+    [RelayCommand]
+    private async Task ToggleCompanionAsync()
+    {
+        if (_token == null) return;
+
+        var enable = !IsCompanionEnabled;
+        try
+        {
+            var response = await _http.PostAsJsonAsync("/api/ai/bot/toggle",
+                new AiBotToggleRequest(enable, SelectedModel?.Id, _deviceId, _deviceName));
+
+            if (!response.IsSuccessStatusCode)
+            {
+                CompanionStatusText = "Could not change companion mode.";
+                return;
+            }
+
+            var status = await response.Content.ReadFromJsonAsync<AiBotStatusResponse>();
+            if (status != null)
+            {
+                IsCompanionEnabled = status.Enabled;
+                CompanionStatusText = DescribeCompanion(status);
+            }
+        }
+        catch
+        {
+            CompanionStatusText = "Could not change companion mode.";
+        }
+    }
+
+    private static string DescribeCompanion(AiBotStatusResponse status) => status.Status switch
+    {
+        "online" => string.IsNullOrWhiteSpace(status.OwnerDeviceName)
+            ? $"Online — {status.ModelName ?? "local model"}. Others can message the AI in internet chat."
+            : $"Online — {status.ModelName ?? "local model"} on {status.OwnerDeviceName}. Others can message the AI in internet chat.",
+        "no-model" => "On, but no model is ready — download one first.",
+        _ => "Companion mode off",
+    };
+
+    // ── Conversations ──────────────────────────────────────────────────────
 
     public async Task LoadConversationsAsync()
     {
@@ -84,32 +353,6 @@ public partial class AiViewModel : ViewModelBase
         {
             // Silently fail — conversations list will remain empty if the API is not ready
         }
-    }
-
-    partial void OnSelectedProviderChanged(string value)
-    {
-        OnPropertyChanged(nameof(AvailableModels));
-        OnPropertyChanged(nameof(IsOllamaSelected));
-        SelectedModel = AvailableModels.FirstOrDefault() ?? string.Empty;
-
-        if (IsOllamaSelected)
-        {
-            _ = LoadOllamaModelsAsync();
-        }
-    }
-
-    partial void OnSelectedConversationChanged(AiConversationItem? value)
-    {
-        if (value != null)
-        {
-            _ = SelectConversationAsync(value);
-        }
-    }
-
-    [RelayCommand]
-    private void TogglePanel()
-    {
-        IsPanelOpen = !IsPanelOpen;
     }
 
     [RelayCommand]
@@ -163,7 +406,6 @@ public partial class AiViewModel : ViewModelBase
 
         var userMessage = MessageText.Trim();
         MessageText = string.Empty;
-        IsLoading = true;
 
         Messages.Add(new AiMessageItem
         {
@@ -171,6 +413,20 @@ public partial class AiViewModel : ViewModelBase
             Content = userMessage,
             Timestamp = DateTime.Now
         });
+
+        // No model ready: tell the user how to get one instead of failing.
+        if (!HasReadyModel)
+        {
+            Messages.Add(new AiMessageItem
+            {
+                Role = "assistant",
+                Content = "No local model is ready. Pick a model below and wait for its download to finish, then try again.",
+                Timestamp = DateTime.Now
+            });
+            return;
+        }
+
+        IsLoading = true;
 
         try
         {
@@ -182,8 +438,7 @@ public partial class AiViewModel : ViewModelBase
                 .ToList();
 
             var request = new AiChatRequest(
-                SelectedProvider,
-                SelectedModel,
+                SelectedModel?.Id,
                 userMessage,
                 SelectedConversation?.Id,
                 history
@@ -209,8 +464,8 @@ public partial class AiViewModel : ViewModelBase
                     {
                         Id = result.ConversationId,
                         Title = userMessage.Length > 50 ? userMessage[..50] + "..." : userMessage,
-                        Provider = SelectedProvider,
-                        ModelName = SelectedModel,
+                        Provider = "local",
+                        ModelName = SelectedModel?.Name ?? string.Empty,
                     };
                     Conversations.Insert(0, SelectedConversation);
                 }
@@ -221,7 +476,7 @@ public partial class AiViewModel : ViewModelBase
             Messages.Add(new AiMessageItem
             {
                 Role = "assistant",
-                Content = $"**Error:** {ex.Message}\n\nMake sure the backend is running and AI provider keys are configured in `appsettings.Development.json`.",
+                Content = $"**Error:** {ex.Message}\n\nMake sure the backend is running and a local model has finished downloading.",
                 Timestamp = DateTime.Now
             });
         }
@@ -237,20 +492,11 @@ public partial class AiViewModel : ViewModelBase
         Messages.Clear();
         SelectedConversation = null;
 
-        if (_token == null) return;
+        if (_token == null || !HasReadyModel) return;
 
         try
         {
-            // POST to /api/ai/chat with empty message and no conversationId
-            // to let the server create a new conversation container
-            var request = new AiChatRequest(
-                SelectedProvider,
-                SelectedModel,
-                " ",
-                null,
-                null
-            );
-
+            var request = new AiChatRequest(SelectedModel?.Id, " ", null, null);
             var response = await _http.PostAsJsonAsync("/api/ai/chat", request);
             response.EnsureSuccessStatusCode();
 
@@ -261,126 +507,15 @@ public partial class AiViewModel : ViewModelBase
                 {
                     Id = result.ConversationId,
                     Title = "New Conversation",
-                    Provider = SelectedProvider,
-                    ModelName = SelectedModel,
+                    Provider = "local",
+                    ModelName = SelectedModel?.Name ?? string.Empty,
                 };
                 Conversations.Insert(0, SelectedConversation);
             }
         }
         catch (Exception ex)
         {
-            // If server-side creation fails, just start locally
-            DownloadStatus = $"Could not create conversation on server: {ex.Message}";
-        }
-    }
-
-    // ── Ollama Integration ──────────────────────────────────────────────────
-
-    private async Task LoadOllamaModelsAsync()
-    {
-        if (_token == null || !IsOllamaSelected) return;
-        try
-        {
-            var response = await _http.GetAsync("/api/ollama/models");
-            if (response.IsSuccessStatusCode)
-            {
-                var result = await response.Content.ReadFromJsonAsync<OllamaModelListResponse>();
-                OllamaLocalModels.Clear();
-                if (result?.Models != null)
-                {
-                    foreach (var m in result.Models)
-                    {
-                        OllamaLocalModels.Add(new OllamaModelItem
-                        {
-                            Name = m.Name,
-                            Size = m.Size,
-                            ModifiedAt = m.ModifiedAt
-                        });
-                    }
-                }
-            }
-        }
-        catch
-        {
-            // Ollama not available — silently ignore
-        }
-    }
-
-    [RelayCommand]
-    private async Task BrowseOllamaModelsAsync()
-    {
-        if (string.IsNullOrWhiteSpace(OllamaSearchQuery) || _token == null) return;
-
-        IsLoading = true;
-        try
-        {
-            var response = await _http.PostAsJsonAsync("/api/ollama/search",
-                new { query = OllamaSearchQuery });
-            response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<OllamaSearchResponse>();
-            OllamaSearchResults.Clear();
-            if (result?.Models != null)
-            {
-                foreach (var m in result.Models)
-                {
-                    OllamaSearchResults.Add(new OllamaModelItem
-                    {
-                        Name = m.Name,
-                        Size = m.Size,
-                        Description = m.Description ?? string.Empty
-                    });
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            DownloadStatus = $"Search failed: {ex.Message}";
-        }
-        finally
-        {
-            IsLoading = false;
-        }
-    }
-
-    [RelayCommand]
-    private async Task DownloadOllamaModelAsync(OllamaModelItem? model)
-    {
-        if (model == null || _token == null) return;
-
-        IsDownloading = true;
-        DownloadProgress = 0;
-        DownloadStatus = $"Downloading {model.Name}...";
-
-        try
-        {
-            var response = await _http.PostAsJsonAsync("/api/ollama/pull",
-                new { name = model.Name });
-            response.EnsureSuccessStatusCode();
-
-            // Try to read download progress if the endpoint returns it
-            var result = await response.Content.ReadFromJsonAsync<OllamaPullResponse>();
-            if (result != null)
-            {
-                DownloadProgress = result.Progress;
-                DownloadStatus = result.Status ?? $"Downloaded {model.Name} successfully!";
-
-                // Refresh the local model list
-                await LoadOllamaModelsAsync();
-            }
-            else
-            {
-                DownloadStatus = $"Downloaded {model.Name} successfully!";
-                DownloadProgress = 100;
-                await LoadOllamaModelsAsync();
-            }
-        }
-        catch (Exception ex)
-        {
-            DownloadStatus = $"Download failed: {ex.Message}";
-        }
-        finally
-        {
-            IsDownloading = false;
+            ModelStatusText = $"Could not create conversation on server: {ex.Message}";
         }
     }
 }
@@ -404,29 +539,33 @@ public class AiMessageItem
     public bool IsAssistant => Role == "assistant";
 }
 
-// ── Ollama DTOs ──────────────────────────────────────────────────────────────
-
-public class OllamaModelItem
+/// <summary>One entry of the curated local model catalogue, with live download state.</summary>
+public partial class LocalModelItem : ObservableObject
 {
+    public string Id { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
-    public long Size { get; set; }
-    public string? Description { get; set; }
-    public DateTime? ModifiedAt { get; set; }
+    public string Description { get; set; } = string.Empty;
+    public string SizeLabel { get; set; } = string.Empty;
+    public long SizeBytes { get; set; }
 
-    public string FormattedSize
+    [ObservableProperty] private bool _isDownloaded;
+    [ObservableProperty] private bool _isDownloading;
+    [ObservableProperty] private double _downloadProgress; // 0..100
+    [ObservableProperty] private string _status = "not-downloaded";
+
+    public string ActionLabel => IsDownloaded ? "Use" : IsDownloading ? "Downloading" : "Download";
+
+    partial void OnIsDownloadedChanged(bool value)
     {
-        get
-        {
-            if (Size < 1024) return $"{Size} B";
-            if (Size < 1024 * 1024) return $"{Size / 1024.0:F1} KB";
-            if (Size < 1024 * 1024 * 1024) return $"{Size / (1024.0 * 1024):F1} MB";
-            return $"{Size / (1024.0 * 1024 * 1024):F2} GB";
-        }
+        OnPropertyChanged(nameof(ActionLabel));
+        OnPropertyChanged(nameof(ShowDownloadButton));
     }
-}
 
-public record OllamaModelListResponse(List<OllamaModelDto> Models);
-public record OllamaModelDto(string Name, long Size, DateTime? ModifiedAt);
-public record OllamaSearchModelDto(string Name, long Size, string? Description);
-public record OllamaSearchResponse(List<OllamaSearchModelDto> Models);
-public record OllamaPullResponse(string? Status, double Progress);
+    partial void OnIsDownloadingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ActionLabel));
+        OnPropertyChanged(nameof(ShowDownloadButton));
+    }
+
+    public bool ShowDownloadButton => !IsDownloaded && !IsDownloading;
+}

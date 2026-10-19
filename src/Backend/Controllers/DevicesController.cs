@@ -19,15 +19,21 @@ public class DevicesController : ControllerBase
     private readonly AppDbContext _db;
     private readonly DeviceDiscoveryService _discoveryService;
     private readonly IHubContext<ChatHub> _hubContext;
+    private readonly IAiBotState _botState;
+    private readonly ModelManager _models;
 
     public DevicesController(
         AppDbContext db,
         DeviceDiscoveryService discoveryService,
-        IHubContext<ChatHub> hubContext)
+        IHubContext<ChatHub> hubContext,
+        IAiBotState botState,
+        ModelManager models)
     {
         _db = db;
         _discoveryService = discoveryService;
         _hubContext = hubContext;
+        _botState = botState;
+        _models = models;
     }
 
     private Guid? GetUserId()
@@ -171,6 +177,35 @@ public class DevicesController : ControllerBase
                 dev.UserId,
                 dev.UserName
             );
+        }
+
+        // 3. Advertise the AI chat node while companion mode is on and its
+        //    model is actually ready. This is a synthetic entry: the AI is a
+        //    system user, not a physical device, so it has no IP/port and is
+        //    reachable through the backend (internet transport) only.
+        if (_botState.IsEnabled)
+        {
+            var modelId = _botState.ModelId ?? _models.ActiveModelId;
+            if (_models.GetModelPath(modelId) is not null)
+            {
+                var modelName = ModelCatalog.Find(modelId)?.DisplayName ?? modelId ?? "Local model";
+                var ownerName = string.IsNullOrWhiteSpace(_botState.OwnerDeviceName)
+                    ? $"Desktop ({Environment.MachineName})"
+                    : _botState.OwnerDeviceName!;
+                var displayName = $"{AiBotService.DisplayName} | {modelName} | {ownerName}";
+
+                const string aiDeviceId = "ai-assistant-node";
+                resultDict[aiDeviceId] = new DeviceDiscoveryDto(
+                    aiDeviceId,
+                    displayName,
+                    modelName,
+                    DeviceRole.AiHost,
+                    new HashSet<string> { "Internet" },
+                    null,
+                    0,
+                    AiBotService.AiUserId,
+                    displayName);
+            }
         }
 
         return Ok(new

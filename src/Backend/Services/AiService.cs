@@ -1,6 +1,3 @@
-using System.Diagnostics;
-using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using OmniConnect.Backend.Data;
@@ -9,11 +6,25 @@ using OmniConnect.Shared.Models;
 
 namespace OmniConnect.Backend.Services;
 
+/// <summary>
+/// All AI features, running entirely on-device.
+///
+/// There is exactly one inference backend: the embedded llama.cpp runtime
+/// (<see cref="LocalInferenceEngine"/>). No remote providers, no local server,
+/// no spawned processes. The only external interaction in the whole AI stack is
+/// the one-time model download handled by <see cref="ModelManager"/>.
+///
+/// Conversation history is still persisted in the shared database so the
+/// desktop client (and older clients) keep working exactly as before.
+/// </summary>
 public class AiService
 {
+    /// <summary>Value reported in every response's <c>Provider</c> field.</summary>
+    public const string LocalProvider = "local";
+
     private readonly AppDbContext _db;
-    private readonly HttpClient _httpClient;
-    private readonly IConfiguration _config;
+    private readonly LocalInferenceEngine _engine;
+    private readonly ModelManager _models;
     private readonly ILogger<AiService> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -22,55 +33,49 @@ public class AiService
         WriteIndented = false,
     };
 
-    // Track running llama.cpp process
-    private Process? _llamaProcess;
-    private readonly object _llamaLock = new();
-
-    public AiService(AppDbContext db, HttpClient httpClient, IConfiguration config, ILogger<AiService> logger)
+    public AiService(AppDbContext db, LocalInferenceEngine engine, ModelManager models, ILogger<AiService> logger)
     {
         _db = db;
-        _httpClient = httpClient;
-        _config = config;
+        _engine = engine;
+        _models = models;
         _logger = logger;
     }
 
     // ── AI Chat ──────────────────────────────────────────────────────────
 
-    public async Task<AiChatResponse> ChatAsync(Guid userId, AiChatRequest request)
+    public async Task<AiChatResponse> ChatAsync(Guid userId, AiChatRequest request, CancellationToken ct = default)
     {
         var conversation = await GetOrCreateConversationAsync(userId, request);
         var history = GetHistory(conversation.MessagesJson, request.History);
 
-        // Add user message to history
         history.Add(new AiMessageDto("user", request.Message, DateTime.UtcNow));
 
-        string reply;
-        int tokensUsed;
-
-        switch (request.Provider.ToLowerInvariant())
+        // No model downloaded yet: answer with guidance rather than failing, so
+        // every client (desktop, mobile, companion bot) shows a usable message.
+        var modelId = ResolveModelId(request.Model);
+        if ((_models.GetModelPath(modelId) ?? _models.GetActiveModelPath()) is null)
         {
-            case "openai":
-                (reply, tokensUsed) = await CallOpenAiAsync(request.Model, history);
-                break;
-            case "gemini":
-                (reply, tokensUsed) = await CallGeminiAsync(request.Model, history);
-                break;
-            case "openrouter":
-                (reply, tokensUsed) = await CallOpenRouterAsync(request.Model, history);
-                break;
-            case "local":
-                (reply, tokensUsed) = await CallLocalModelAsync(request.Model, history);
-                break;
-            default:
-                throw new ArgumentException($"Unsupported provider: {request.Provider}");
+            var hint = NoModelSelected().Message;
+            history.Add(new AiMessageDto("assistant", hint, DateTime.UtcNow));
+            conversation.MessagesJson = JsonSerializer.Serialize(history, JsonOptions);
+            conversation.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+            return new AiChatResponse(conversation.Id, hint, 0, history);
         }
 
-        // Add assistant reply to history
+        var messages = history
+            .Where(m => !string.IsNullOrWhiteSpace(m.Content))
+            .Select(m => (Role: NormalizeRole(m.Role), Content: m.Content))
+            .ToList();
+
+        var reply = await RunAsync(request.Model, messages, maxTokens: 512, temperature: 0.7f, ct: ct);
+        var tokensUsed = ApproximateTokens(reply);
+
         history.Add(new AiMessageDto("assistant", reply, DateTime.UtcNow));
 
-        // Persist conversation
         conversation.MessagesJson = JsonSerializer.Serialize(history, JsonOptions);
         conversation.TokenCount += tokensUsed;
+        conversation.ModelName = ResolveModelId(request.Model);
         conversation.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
@@ -79,149 +84,103 @@ public class AiService
 
     // ── Translation ──────────────────────────────────────────────────────
 
-    public async Task<AiTranslateResponse> TranslateAsync(AiTranslateRequest request)
+    public async Task<AiTranslateResponse> TranslateAsync(AiTranslateRequest request, CancellationToken ct = default)
     {
-        var provider = request.Provider ?? "openai";
-        var prompt = $"Translate the following text from {request.SourceLanguage} to {request.TargetLanguage}. Return only the translated text, no explanations.\n\nText: {request.Text}";
-
-        var history = new List<AiMessageDto>
+        var messages = new List<(string, string)>
         {
-            new("system", "You are a professional translator. Return only the translated text.", DateTime.UtcNow),
-            new("user", prompt, DateTime.UtcNow),
+            ("system", "You are a professional translator. Return only the translated text, with no explanations or extra commentary."),
+            ("user", $"Translate the following text from {request.SourceLanguage} to {request.TargetLanguage}.\n\nText: {request.Text}"),
         };
 
-        string translated;
-        _ = provider.ToLowerInvariant() switch
-        {
-            "openai" => translated = (await CallOpenAiAsync("gpt-4o-mini", history)).Reply,
-            "gemini" => translated = (await CallGeminiAsync("gemini-2.0-flash", history)).Reply,
-            "openrouter" => translated = (await CallOpenRouterAsync("openai/gpt-4o-mini", history)).Reply,
-            _ => throw new ArgumentException($"Unsupported provider: {provider}"),
-        };
-
-        return new AiTranslateResponse(translated.Trim(), request.SourceLanguage, provider);
+        var translated = await RunAsync(null, messages, maxTokens: 1024, temperature: 0.2f, ct: ct);
+        return new AiTranslateResponse(translated.Trim(), request.SourceLanguage, LocalProvider);
     }
 
     // ── Summarization ────────────────────────────────────────────────────
 
-    public async Task<AiSummarizeResponse> SummarizeAsync(AiSummarizeRequest request)
+    public async Task<AiSummarizeResponse> SummarizeAsync(AiSummarizeRequest request, CancellationToken ct = default)
     {
-        var provider = request.Provider ?? "openai";
         var lengthInstruction = request.MaxLength.HasValue
             ? $"Summarize in approximately {request.MaxLength} words."
             : "Provide a concise summary.";
 
-        var prompt = $"{lengthInstruction}\n\nText: {request.Text}";
-
-        var history = new List<AiMessageDto>
+        var messages = new List<(string, string)>
         {
-            new("system", "You are a summarization assistant. Provide clear, concise summaries.", DateTime.UtcNow),
-            new("user", prompt, DateTime.UtcNow),
+            ("system", "You are a summarization assistant. Provide clear, concise summaries."),
+            ("user", $"{lengthInstruction}\n\nText: {request.Text}"),
         };
 
-        string summary;
-        _ = provider.ToLowerInvariant() switch
-        {
-            "openai" => summary = (await CallOpenAiAsync("gpt-4o-mini", history)).Reply,
-            "gemini" => summary = (await CallGeminiAsync("gemini-2.0-flash", history)).Reply,
-            "openrouter" => summary = (await CallOpenRouterAsync("openai/gpt-4o-mini", history)).Reply,
-            _ => throw new ArgumentException($"Unsupported provider: {provider}"),
-        };
-
-        return new AiSummarizeResponse(summary.Trim(), request.Text.Length, summary.Trim().Length);
+        var summary = (await RunAsync(null, messages, maxTokens: 512, temperature: 0.3f, ct: ct)).Trim();
+        return new AiSummarizeResponse(summary, request.Text.Length, summary.Length);
     }
 
-    // ── OCR ────────────────────────────────────────────────────────────
+    // ── OCR ──────────────────────────────────────────────────────────────
+    // The local text models are not vision models, so this deliberately does
+    // not pretend to read pixels. It is kept as a stable endpoint that returns
+    // a clear, honest message instead of failing or fabricating text.
 
-    public async Task<AiOcrResponse> PerformOcrAsync(AiOcrRequest request)
+    public Task<AiOcrResponse> PerformOcrAsync(AiOcrRequest request)
     {
-        var provider = request.Provider ?? "openai";
-        var prompt = "Extract all visible text from the image. Return only the extracted text, preserving line breaks.";
+        const string message =
+            "OCR is unavailable with the current local text model. " +
+            "Install a vision-capable model to extract text from images.";
 
-        // For providers that support vision, pass the image as base64
-        string extracted;
-        float confidence = 0.95f;
-
-        var history = new List<AiMessageDto>
-        {
-            new("system", "You are an OCR assistant. Extract text from images accurately.", DateTime.UtcNow),
-            new("user", $"{prompt}\n[Image: base64 data ({request.ImageBase64.Length} chars)]", DateTime.UtcNow),
-        };
-
-        _ = provider.ToLowerInvariant() switch
-        {
-            "openai" => extracted = (await CallOpenAiAsync("gpt-4o", history)).Reply,
-            "gemini" => extracted = (await CallGeminiAsync("gemini-2.0-flash", history)).Reply,
-            "openrouter" => extracted = (await CallOpenRouterAsync("openai/gpt-4o", history)).Reply,
-            _ => throw new ArgumentException($"Unsupported provider: {provider}"),
-        };
-
-        return new AiOcrResponse(extracted.Trim(), confidence, provider);
+        _logger.LogInformation("OCR requested but no vision model is available");
+        return Task.FromResult(new AiOcrResponse(message, 0f, LocalProvider));
     }
 
     // ── Smart Reply ─────────────────────────────────────────────────────
 
-    public async Task<AiSmartReplyResponse> GenerateSmartRepliesAsync(AiSmartReplyRequest request)
+    public async Task<AiSmartReplyResponse> GenerateSmartRepliesAsync(AiSmartReplyRequest request, CancellationToken ct = default)
     {
-        var context = request.ContextMessage;
         var historyText = request.ConversationHistory is { Count: > 0 }
             ? string.Join("\n", request.ConversationHistory)
             : "";
 
         var fullContext = string.IsNullOrEmpty(historyText)
-            ? $"Last message: {context}"
-            : $"Conversation history:\n{historyText}\n\nLast message: {context}";
+            ? $"Last message: {request.ContextMessage}"
+            : $"Conversation history:\n{historyText}\n\nLast message: {request.ContextMessage}";
 
-        var prompt = $"{fullContext}\n\nGenerate 3 short, contextual reply suggestions. Return them as a JSON array of strings. Do not include any other text.";
-
-        var history = new List<AiMessageDto>
+        var messages = new List<(string, string)>
         {
-            new("system", "You are a smart reply assistant. Generate concise, contextually appropriate responses.", DateTime.UtcNow),
-            new("user", prompt, DateTime.UtcNow),
+            ("system", "You are a smart reply assistant. Generate concise, contextually appropriate responses."),
+            ("user", $"{fullContext}\n\nGenerate 3 short reply suggestions. Return only a JSON array of strings, nothing else."),
         };
 
-        var (reply, _) = await CallOpenAiAsync("gpt-4o-mini", history);
+        var reply = await RunAsync(null, messages, maxTokens: 256, temperature: 0.8f, ct: ct);
 
-        // Try to parse the response as JSON array of strings
         List<string> suggestions;
         try
         {
-            suggestions = JsonSerializer.Deserialize<List<string>>(reply, JsonOptions) ?? new List<string>();
+            suggestions = JsonSerializer.Deserialize<List<string>>(reply, JsonOptions) ?? [];
         }
         catch (JsonException)
         {
-            // Fallback: split by newlines and clean up
             suggestions = reply.Split('\n', StringSplitOptions.RemoveEmptyEntries)
-                .Select(s => s.Trim().TrimStart('-', '*', '"').TrimEnd('"', ','))
+                .Select(s => s.Trim().TrimStart('-', '*', '[', '"').TrimEnd('"', ',', ']').Trim())
                 .Where(s => s.Length > 0)
                 .Take(3)
                 .ToList();
         }
 
-        // Ensure we have at least 1 suggestion
         if (suggestions.Count == 0)
+        {
             suggestions = ["I'll get back to you on that.", "Sounds good!", "Let me check."];
+        }
 
         return new AiSmartReplyResponse(suggestions.Take(3).ToList());
     }
 
     // ── Embeddings ─────────────────────────────────────────────────────
 
-    public async Task<AiEmbeddingResponse> GenerateEmbeddingAsync(AiEmbeddingRequest request)
+    public async Task<AiEmbeddingResponse> GenerateEmbeddingAsync(AiEmbeddingRequest request, CancellationToken ct = default)
     {
-        var provider = request.Provider ?? "openai";
+        var path = _models.GetActiveModelPath()
+            ?? throw NoModelSelected();
 
-        switch (provider.ToLowerInvariant())
-        {
-            case "openai":
-                return await CallOpenAiEmbeddingAsync(request.Text);
-            case "gemini":
-                return await CallGeminiEmbeddingAsync(request.Text);
-            case "local":
-                return await CallLocalEmbeddingAsync(request.Text);
-            default:
-                throw new ArgumentException($"Embedding provider not supported: {provider}");
-        }
+        await _engine.EnsureLoadedAsync(path, ct: ct);
+        var embedding = await _engine.EmbedAsync(request.Text, ct);
+        return new AiEmbeddingResponse(embedding, embedding.Length, LocalProvider);
     }
 
     // ── Conversation Management ─────────────────────────────────────────
@@ -270,235 +229,51 @@ public class AiService
         return true;
     }
 
-    // ── Provider Implementations ─────────────────────────────────────────
+    // ── Local engine plumbing ────────────────────────────────────────────
 
-    private async Task<(string Reply, int TokensUsed)> CallOpenAiAsync(string model, List<AiMessageDto> history)
+    /// <summary>
+    /// Ensure the selected model is loaded, then run a completion.
+    /// Shared by chat, translation, summarization and smart replies.
+    /// </summary>
+    private async Task<string> RunAsync(
+        string? modelId,
+        List<(string Role, string Content)> messages,
+        int maxTokens,
+        float temperature,
+        CancellationToken ct = default)
     {
-        var apiKey = _config["Ai:OpenAi:ApiKey"]
-            ?? throw new InvalidOperationException("OpenAI API key not configured.");
-        var baseUrl = _config["Ai:OpenAi:BaseUrl"] ?? "https://api.openai.com/v1";
-
-        var messages = history.Select(h => new
+        var id = ResolveModelId(modelId);
+        var path = _models.GetModelPath(id) ?? _models.GetActiveModelPath();
+        if (path is null)
         {
-            role = h.Role,
-            content = h.Content,
-        }).ToList();
-
-        var requestBody = new
-        {
-            model,
-            messages,
-            max_tokens = 2048,
-        };
-
-        var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/chat/completions")
-        {
-            Headers = { { "Authorization", $"Bearer {apiKey}" } },
-            Content = JsonContent.Create(requestBody, options: JsonOptions),
-        };
-
-        var response = await _httpClient.SendAsync(httpRequest);
-        response.EnsureSuccessStatusCode();
-
-        var json = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
-        var reply = json.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? string.Empty;
-        var tokensUsed = json.GetProperty("usage").GetProperty("total_tokens").GetInt32();
-
-        return (reply, tokensUsed);
-    }
-
-    private async Task<(string Reply, int TokensUsed)> CallGeminiAsync(string model, List<AiMessageDto> history)
-    {
-        var apiKey = _config["Ai:Gemini:ApiKey"]
-            ?? throw new InvalidOperationException("Gemini API key not configured.");
-        var baseUrl = _config["Ai:Gemini:BaseUrl"] ?? "https://generativelanguage.googleapis.com/v1beta";
-
-        var contents = history.Select(h => new
-        {
-            role = h.Role == "assistant" ? "model" : h.Role,
-            parts = new[] { new { text = h.Content } },
-        }).ToList();
-
-        var requestBody = new { contents };
-
-        var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/models/{model}:generateContent?key={apiKey}")
-        {
-            Content = JsonContent.Create(requestBody, options: JsonOptions),
-        };
-
-        var response = await _httpClient.SendAsync(httpRequest);
-        response.EnsureSuccessStatusCode();
-
-        var json = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
-        var reply = json.GetProperty("candidates")[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString() ?? string.Empty;
-
-        return (reply, reply.Length / 4); // approximate token count
-    }
-
-    private async Task<(string Reply, int TokensUsed)> CallOpenRouterAsync(string model, List<AiMessageDto> history)
-    {
-        var apiKey = _config["Ai:OpenRouter:ApiKey"]
-            ?? throw new InvalidOperationException("OpenRouter API key not configured.");
-
-        var messages = history.Select(h => new
-        {
-            role = h.Role,
-            content = h.Content,
-        }).ToList();
-
-        var requestBody = new
-        {
-            model,
-            messages,
-            max_tokens = 2048,
-        };
-
-        var httpRequest = new HttpRequestMessage(HttpMethod.Post, "https://openrouter.ai/api/v1/chat/completions")
-        {
-            Headers =
-            {
-                { "Authorization", $"Bearer {apiKey}" },
-                { "HTTP-Referer", "https://omniconnect.local" },
-                { "X-Title", "OmniConnect" },
-            },
-            Content = JsonContent.Create(requestBody, options: JsonOptions),
-        };
-
-        var response = await _httpClient.SendAsync(httpRequest);
-        response.EnsureSuccessStatusCode();
-
-        var json = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
-        var reply = json.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? string.Empty;
-        var tokensUsed = json.GetProperty("usage").GetProperty("total_tokens").GetInt32();
-
-        return (reply, tokensUsed);
-    }
-
-    private async Task<(string Reply, int TokensUsed)> CallLocalModelAsync(string model, List<AiMessageDto> history)
-    {
-        var modelPath = _config[$"Ai:Local:ModelPath"]
-            ?? throw new InvalidOperationException("Local model path not configured.");
-
-        EnsureLlamaProcess(modelPath, model);
-
-        var prompt = string.Join("\n", history.Select(h => $"{h.Role}: {h.Content}")) + "\nassistant: ";
-
-        // Write prompt to stdin of llama.cpp process
-        // This is a simplified integration - in production, use server mode with HTTP
-        var psi = new ProcessStartInfo
-        {
-            FileName = "llama-cli",
-            Arguments = $"--model \"{modelPath}\" --prompt \"{EscapePrompt(prompt)}\" --n-predict 512 --temp 0.7",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-
-        using var process = new Process { StartInfo = psi };
-        process.Start();
-
-        var output = await process.StandardOutput.ReadToEndAsync();
-        var error = await process.StandardError.ReadToEndAsync();
-
-        await process.WaitForExitAsync();
-
-        if (process.ExitCode != 0)
-        {
-            _logger.LogError("Local model exited with code {ExitCode}: {Error}", process.ExitCode, error);
-            throw new InvalidOperationException($"Local model inference failed: {error}");
+            throw NoModelSelected();
         }
 
-        // Clean up output - remove the prompt from response
-        var reply = output.Trim();
-        var tokensUsed = reply.Length / 4; // approximate
-
-        return (reply, tokensUsed);
+        await _engine.EnsureLoadedAsync(path, ct: ct);
+        return await _engine.ChatAsync(messages, maxTokens, temperature, ct: ct);
     }
 
-    private async Task<AiEmbeddingResponse> CallOpenAiEmbeddingAsync(string text)
+    private string ResolveModelId(string? requested)
     {
-        var apiKey = _config["Ai:OpenAi:ApiKey"]
-            ?? throw new InvalidOperationException("OpenAI API key not configured.");
-
-        var requestBody = new
+        if (!string.IsNullOrWhiteSpace(requested) && ModelCatalog.Find(requested!) is not null)
         {
-            model = "text-embedding-3-small",
-            input = text,
-        };
-
-        var httpRequest = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/embeddings")
-        {
-            Headers = { { "Authorization", $"Bearer {apiKey}" } },
-            Content = JsonContent.Create(requestBody, options: JsonOptions),
-        };
-
-        var response = await _httpClient.SendAsync(httpRequest);
-        response.EnsureSuccessStatusCode();
-
-        var json = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
-        var embedding = json.GetProperty("data")[0].GetProperty("embedding")
-            .EnumerateArray().Select(e => e.GetSingle()).ToArray();
-
-        return new AiEmbeddingResponse(embedding, embedding.Length, "openai");
+            return requested!;
+        }
+        return _models.ActiveModelId;
     }
 
-    private async Task<AiEmbeddingResponse> CallGeminiEmbeddingAsync(string text)
+    private static InvalidOperationException NoModelSelected() =>
+        new("No local model is ready. Open AI chat, select a model and wait for its download to finish.");
+
+    private static string NormalizeRole(string role) => role?.ToLowerInvariant() switch
     {
-        var apiKey = _config["Ai:Gemini:ApiKey"]
-            ?? throw new InvalidOperationException("Gemini API key not configured.");
+        "assistant" => "assistant",
+        "system" => "system",
+        _ => "user",
+    };
 
-        var requestBody = new
-        {
-            model = "models/text-embedding-004",
-            content = new { parts = new[] { new { text } } },
-        };
-
-        var httpRequest = new HttpRequestMessage(
-            HttpMethod.Post,
-            $"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={apiKey}")
-        {
-            Content = JsonContent.Create(requestBody, options: JsonOptions),
-        };
-
-        var response = await _httpClient.SendAsync(httpRequest);
-        response.EnsureSuccessStatusCode();
-
-        var json = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
-        var embedding = json.GetProperty("embedding").GetProperty("values")
-            .EnumerateArray().Select(e => e.GetSingle()).ToArray();
-
-        return new AiEmbeddingResponse(embedding, embedding.Length, "gemini");
-    }
-
-    private async Task<AiEmbeddingResponse> CallLocalEmbeddingAsync(string text)
-    {
-        var modelPath = _config["Ai:Local:EmbeddingModelPath"]
-            ?? _config["Ai:Local:ModelPath"]
-            ?? throw new InvalidOperationException("Local model path not configured.");
-
-        var psi = new ProcessStartInfo
-        {
-            FileName = "llama-embedding",
-            Arguments = $"--model \"{modelPath}\" --prompt \"{EscapePrompt(text)}\"",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-
-        using var process = new Process { StartInfo = psi };
-        process.Start();
-
-        var output = await process.StandardOutput.ReadToEndAsync();
-        await process.WaitForExitAsync();
-
-        var values = output.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries)
-            .Select(s => float.TryParse(s, out var v) ? v : 0f)
-            .ToArray();
-
-        return new AiEmbeddingResponse(values, values.Length, "local");
-    }
+    private static int ApproximateTokens(string text) =>
+        string.IsNullOrEmpty(text) ? 0 : Math.Max(1, text.Length / 4);
 
     // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -517,8 +292,8 @@ public class AiService
             conversation = new AiConversation
             {
                 UserId = userId,
-                Provider = request.Provider,
-                ModelName = request.Model,
+                Provider = LocalProvider,
+                ModelName = ResolveModelId(request.Model),
                 Title = request.Message.Length > 80
                     ? request.Message[..80] + "..."
                     : request.Message,
@@ -545,22 +320,5 @@ public class AiService
         {
             return [];
         }
-    }
-
-    private void EnsureLlamaProcess(string modelPath, string model)
-    {
-        // In production, this would start llama.cpp in server mode
-        // For now, we use per-request process spawning in CallLocalModelAsync
-        _logger.LogInformation("Local model configured: {ModelPath}", modelPath);
-    }
-
-    private static string EscapePrompt(string prompt)
-    {
-        return prompt
-            .Replace("\\", "\\\\")
-            .Replace("\"", "\\\"")
-            .Replace("\n", "\\n")
-            .Replace("\r", "\\r")
-            .Replace("\t", "\\t");
     }
 }

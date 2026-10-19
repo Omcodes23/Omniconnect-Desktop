@@ -24,4 +24,23 @@
     <ProjectReference Include="..\Shared\OmniConnect.Shared.csproj" />
   </ItemGroup>
 
+  <!--
+    The in-process llama.cpp runtime (native/omni_llama) is a plain shared
+    library, not a NuGet package, so it has to be staged beside the backend
+    executable for P/Invoke to find it. The build works fine without it (local
+    AI simply reports "runtime not installed"); build it first with
+    native/build-windows.ps1 to drop the binary into native/dist/<rid>/.
+  -->
+  <PropertyGroup>
+    <OmniLlamaRid Condition="'$(OmniLlamaRid)' == '' AND '$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</OmniLlamaRid>
+    <OmniLlamaRid Condition="'$(OmniLlamaRid)' == ''">win-x64</OmniLlamaRid>
+    <OmniLlamaSourcePath>$(MSBuildThisFileDirectory)..\..\native\dist\$(OmniLlamaRid)\omni_llama.dll</OmniLlamaSourcePath>
+  </PropertyGroup>
+
+  <Target Name="CopyOmniLlamaRuntime" AfterTargets="Build"
+          Condition="Exists('$(OmniLlamaSourcePath)')">
+    <Copy SourceFiles="$(OmniLlamaSourcePath)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="omni_llama runtime staged: $(OutDir)omni_llama.dll" />
+  </Target>
+
 </Project>
